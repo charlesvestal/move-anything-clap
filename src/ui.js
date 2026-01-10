@@ -2,7 +2,10 @@
 //
 // Provides plugin browser and parameter control interface.
 
-import { CC } from "../../shared/constants.mjs";
+import {
+    MoveMainKnob,
+    MoveLeft, MoveRight, MoveUp, MoveDown
+} from "../../shared/constants.mjs";
 
 // State
 let plugins = [];
@@ -15,6 +18,14 @@ let octaveTranspose = 0;
 const PARAMS_PER_BANK = 8;
 const SCREEN_WIDTH = 128;
 const SCREEN_HEIGHT = 64;
+const LINE_HEIGHT = 10;
+
+// CC numbers
+const CC_JOG = MoveMainKnob;  // 14
+const CC_LEFT = MoveLeft;     // 44
+const CC_RIGHT = MoveRight;   // 45
+const CC_UP = MoveUp;         // 46
+const CC_DOWN = MoveDown;     // 47
 
 export function init() {
     refresh();
@@ -47,25 +58,32 @@ function refresh() {
 
 function render() {
     clear_screen();
+    let y = 2;
 
     // Title bar
-    print("CLAP Host");
+    print(2, y, "CLAP Host", 1);
+    y += LINE_HEIGHT;
 
     if (plugins.length === 0) {
-        print("");
-        print("No plugins found");
-        print("Add .clap files to:");
-        print("  plugins/");
+        y += LINE_HEIGHT;
+        print(2, y, "No plugins found", 1);
+        y += LINE_HEIGHT;
+        print(2, y, "Add .clap files to:", 1);
+        y += LINE_HEIGHT;
+        print(2, y, "  plugins/", 1);
         return;
     }
 
     // Current plugin
     const name = plugins[selectedIndex] || "None";
     const shortName = name.length > 18 ? name.substring(0, 15) + "..." : name;
-    print(`> ${shortName}`);
+    print(2, y, "> " + shortName, 1);
+    y += LINE_HEIGHT;
 
     // Plugin selector hint
-    print(`[${selectedIndex + 1}/${plugins.length}] Oct:${octaveTranspose >= 0 ? '+' : ''}${octaveTranspose}`);
+    const octStr = octaveTranspose >= 0 ? "+" + octaveTranspose : String(octaveTranspose);
+    print(2, y, "[" + (selectedIndex + 1) + "/" + plugins.length + "] Oct:" + octStr, 1);
+    y += LINE_HEIGHT;
 
     // Parameters (show current bank)
     if (paramCount > 0) {
@@ -74,18 +92,20 @@ function render() {
         const bankNum = Math.floor(paramBank) + 1;
         const totalBanks = Math.ceil(paramCount / PARAMS_PER_BANK);
 
-        print(`Params ${bankNum}/${totalBanks}:`);
+        print(2, y, "Params " + bankNum + "/" + totalBanks + ":", 1);
+        y += LINE_HEIGHT;
 
-        // Show up to 4 params with names
-        for (let i = bankStart; i < Math.min(bankStart + 4, bankEnd); i++) {
-            const pname = host_module_get_param(`param_name_${i}`) || `P${i}`;
-            const pval = host_module_get_param(`param_value_${i}`) || "0";
+        // Show up to 3 params with names (limited screen space)
+        for (let i = bankStart; i < Math.min(bankStart + 3, bankEnd); i++) {
+            const pname = host_module_get_param("param_name_" + i) || "P" + i;
+            const pval = host_module_get_param("param_value_" + i) || "0";
             const shortPname = pname.length > 8 ? pname.substring(0, 7) : pname;
-            print(`${shortPname}: ${pval}`);
+            print(2, y, shortPname + ": " + pval, 1);
+            y += LINE_HEIGHT;
         }
     } else {
-        print("");
-        print("No parameters");
+        y += LINE_HEIGHT;
+        print(2, y, "No parameters", 1);
     }
 }
 
@@ -102,7 +122,7 @@ export function onMidiMessage(msg, source) {
     // Handle control changes
     if (status === 0xB0) {
         // Jog wheel (CC 14) - plugin selection
-        if (cc === CC.JOG) {
+        if (cc === CC_JOG) {
             if (val === 1) {
                 // Right - next plugin
                 if (selectedIndex < plugins.length - 1) {
@@ -121,16 +141,16 @@ export function onMidiMessage(msg, source) {
                 }
             }
         }
-        // Left button (CC 44) - previous param bank
-        else if (cc === 44 && val > 0) {
+        // Left button - previous param bank
+        else if (cc === CC_LEFT && val > 0) {
             if (paramBank > 0) {
                 paramBank--;
                 host_module_set_param("param_bank", String(paramBank));
                 render();
             }
         }
-        // Right button (CC 45) - next param bank
-        else if (cc === 45 && val > 0) {
+        // Right button - next param bank
+        else if (cc === CC_RIGHT && val > 0) {
             const totalBanks = Math.ceil(paramCount / PARAMS_PER_BANK);
             if (paramBank < totalBanks - 1) {
                 paramBank++;
@@ -138,16 +158,16 @@ export function onMidiMessage(msg, source) {
                 render();
             }
         }
-        // Up button (CC 46) - octave up
-        else if (cc === 46 && val > 0) {
+        // Up button - octave up
+        else if (cc === CC_UP && val > 0) {
             if (octaveTranspose < 2) {
                 octaveTranspose++;
                 host_module_set_param("octave_transpose", String(octaveTranspose));
                 render();
             }
         }
-        // Down button (CC 47) - octave down
-        else if (cc === 47 && val > 0) {
+        // Down button - octave down
+        else if (cc === CC_DOWN && val > 0) {
             if (octaveTranspose > -2) {
                 octaveTranspose--;
                 host_module_set_param("octave_transpose", String(octaveTranspose));
