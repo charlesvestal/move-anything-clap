@@ -57,6 +57,7 @@ ${CROSS_PREFIX}g++ -O3 -shared -fPIC -std=c++14 \
     src/dsp/clap_plugin.cpp \
     src/dsp/clap_host.c \
     -o build/dsp.so \
+    -Isrc \
     -Isrc/dsp \
     -Ithird_party/clap/include \
     -ldl
@@ -70,6 +71,7 @@ ${CROSS_PREFIX}g++ -O3 -shared -fPIC -std=c++14 \
     src/chain_audio_fx/clap_fx.cpp \
     src/dsp/clap_host.c \
     -o build/clap_fx.so \
+    -Isrc \
     -Isrc/dsp \
     -Isrc/chain_audio_fx \
     -Ithird_party/clap/include \

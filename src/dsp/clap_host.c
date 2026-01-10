@@ -65,7 +65,7 @@ static int list_add(clap_host_list_t *list, const clap_plugin_info_t *info) {
         if (new_cap > CLAP_HOST_MAX_PLUGINS) new_cap = CLAP_HOST_MAX_PLUGINS;
         if (list->count >= new_cap) return -1;
 
-        clap_plugin_info_t *new_items = realloc(list->items, new_cap * sizeof(clap_plugin_info_t));
+        clap_plugin_info_t *new_items = (clap_plugin_info_t *)realloc(list->items, new_cap * sizeof(clap_plugin_info_t));
         if (!new_items) return -1;
         list->items = new_items;
         list->capacity = new_cap;
@@ -301,8 +301,8 @@ static void ensure_buffers(int frames) {
     for (int i = 0; i < 2; i++) {
         free(s_in_bufs[i]);
         free(s_out_bufs[i]);
-        s_in_bufs[i] = calloc(frames, sizeof(float));
-        s_out_bufs[i] = calloc(frames, sizeof(float));
+        s_in_bufs[i] = (float *)calloc(frames, sizeof(float));
+        s_out_bufs[i] = (float *)calloc(frames, sizeof(float));
     }
     s_buf_frames = frames;
 }
@@ -360,7 +360,7 @@ int clap_process_block(clap_instance_t *inst, const float *in, float *out, int f
     /* Setup process struct */
     clap_process_t process = {
         .steady_time = -1,
-        .frames_count = frames,
+        .frames_count = (uint32_t)frames,
         .transport = NULL,
         .audio_inputs = &audio_in,
         .audio_outputs = &audio_out,
