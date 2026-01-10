@@ -55,6 +55,19 @@ Shared functions:
 - `clap_param_*()`: Parameter enumeration and control
 - `clap_unload_plugin()`: Clean up plugin instance
 
+Host extensions implemented (stub/minimal):
+- `thread-check`: Reports main/audio thread status
+- `state`: Mark dirty callback (no-op)
+- `latency`: Latency changed callback (no-op)
+- `tail`: Tail changed callback (no-op)
+- `params`: Rescan/clear/flush callbacks (no-op)
+- `track-info`: Returns basic track info
+- `gui`: GUI request callbacks (returns false, no GUI support)
+- `note-name`: Note name changed callback (no-op)
+- `audio-ports-config`: Rescan callback (no-op)
+
+These extensions prevent crashes from plugins that expect host callbacks.
+
 ### Plugin Discovery
 
 Plugins scanned from `/data/UserData/move-anything/modules/clap/plugins/`.
@@ -77,4 +90,17 @@ cc tests/test_clap_scan.c -Isrc -Ithird_party/clap/include -ldl -o /tmp/test && 
 
 # Process test (requires fixtures)
 cc tests/test_clap_process.c -Isrc -Ithird_party/clap/include -ldl -o /tmp/test && /tmp/test
+```
+
+### On-Device Testing
+
+JavaScript test scripts for testing on Move hardware:
+
+```bash
+# Test all plugins (runs on device)
+scp tests/test_all_plugins.js ableton@move.local:/data/UserData/move-anything/tests/
+ssh ableton@move.local 'cd /data/UserData/move-anything && ./move-anything tests/test_all_plugins.js'
+
+# Test specific plugin indices
+# Edit test_batch.js to set test_indices array, then run same way
 ```
