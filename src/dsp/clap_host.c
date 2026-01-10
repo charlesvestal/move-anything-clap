@@ -29,6 +29,17 @@
 #define HOST_MIN_FRAMES 1
 #define HOST_MAX_FRAMES 4096
 
+/* MIDI event queue */
+#define MAX_MIDI_EVENTS 256
+typedef struct {
+    uint8_t data[3];
+    int len;
+} midi_event_t;
+
+static midi_event_t s_midi_queue[MAX_MIDI_EVENTS];
+static int s_midi_queue_count = 0;
+static pthread_mutex_t s_midi_mutex = PTHREAD_MUTEX_INITIALIZER;
+
 /* Track main thread ID for thread check */
 static pthread_t s_main_thread;
 static int s_main_thread_set = 0;
@@ -449,10 +460,70 @@ static float *s_in_bufs[2] = {NULL, NULL};
 static float *s_out_bufs[2] = {NULL, NULL};
 static int s_buf_frames = 0;
 
-/* Empty event list callbacks */
-static uint32_t s_empty_size(const clap_input_events_t *list) { return 0; }
-static const clap_event_header_t *s_empty_get(const clap_input_events_t *list, uint32_t index) { return NULL; }
+/* CLAP event storage for current process block */
+static clap_event_note_t s_note_events[MAX_MIDI_EVENTS];
+static int s_note_event_count = 0;
+
+/* Event list callbacks */
+static uint32_t s_events_size(const clap_input_events_t *list) {
+    return (uint32_t)s_note_event_count;
+}
+
+static const clap_event_header_t *s_events_get(const clap_input_events_t *list, uint32_t index) {
+    if (index >= (uint32_t)s_note_event_count) return NULL;
+    return &s_note_events[index].header;
+}
+
 static bool s_empty_push(const clap_output_events_t *list, const clap_event_header_t *event) { return true; }
+
+/* Convert MIDI queue to CLAP note events */
+static void prepare_midi_events(void) {
+    pthread_mutex_lock(&s_midi_mutex);
+
+    s_note_event_count = 0;
+    for (int i = 0; i < s_midi_queue_count && s_note_event_count < MAX_MIDI_EVENTS; i++) {
+        midi_event_t *m = &s_midi_queue[i];
+        if (m->len < 3) continue;
+
+        uint8_t status = m->data[0] & 0xF0;
+        uint8_t channel = m->data[0] & 0x0F;
+        uint8_t note = m->data[1];
+        uint8_t velocity = m->data[2];
+
+        clap_event_note_t *evt = &s_note_events[s_note_event_count];
+
+        if (status == 0x90 && velocity > 0) {
+            /* Note on */
+            evt->header.size = sizeof(clap_event_note_t);
+            evt->header.time = 0;
+            evt->header.space_id = CLAP_CORE_EVENT_SPACE_ID;
+            evt->header.type = CLAP_EVENT_NOTE_ON;
+            evt->header.flags = 0;
+            evt->note_id = -1;
+            evt->port_index = 0;
+            evt->channel = channel;
+            evt->key = note;
+            evt->velocity = velocity / 127.0;
+            s_note_event_count++;
+        } else if (status == 0x80 || (status == 0x90 && velocity == 0)) {
+            /* Note off */
+            evt->header.size = sizeof(clap_event_note_t);
+            evt->header.time = 0;
+            evt->header.space_id = CLAP_CORE_EVENT_SPACE_ID;
+            evt->header.type = CLAP_EVENT_NOTE_OFF;
+            evt->header.flags = 0;
+            evt->note_id = -1;
+            evt->port_index = 0;
+            evt->channel = channel;
+            evt->key = note;
+            evt->velocity = velocity / 127.0;
+            s_note_event_count++;
+        }
+    }
+
+    s_midi_queue_count = 0;
+    pthread_mutex_unlock(&s_midi_mutex);
+}
 
 static void ensure_buffers(int frames) {
     if (frames <= s_buf_frames) return;
@@ -524,11 +595,14 @@ int clap_process_block(clap_instance_t *inst, const float *in, float *out, int f
         .constant_mask = 0
     };
 
-    /* Empty event lists */
+    /* Prepare MIDI events from queue */
+    prepare_midi_events();
+
+    /* Event lists with queued MIDI */
     clap_input_events_t in_events = {
         .ctx = NULL,
-        .size = s_empty_size,
-        .get = s_empty_get
+        .size = s_events_size,
+        .get = s_events_get
     };
     clap_output_events_t out_events = {
         .ctx = NULL,
@@ -624,9 +698,18 @@ double clap_param_get(clap_instance_t *inst, int index) {
 }
 
 int clap_send_midi(clap_instance_t *inst, const uint8_t *msg, int len) {
-    /* TODO: Queue MIDI events for next process call */
+    if (!msg || len < 1 || len > 3) return -1;
+
+    pthread_mutex_lock(&s_midi_mutex);
+    if (s_midi_queue_count < MAX_MIDI_EVENTS) {
+        midi_event_t *evt = &s_midi_queue[s_midi_queue_count++];
+        evt->len = len;
+        for (int i = 0; i < len; i++) {
+            evt->data[i] = msg[i];
+        }
+    }
+    pthread_mutex_unlock(&s_midi_mutex);
+
     (void)inst;
-    (void)msg;
-    (void)len;
     return 0;
 }

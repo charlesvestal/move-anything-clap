@@ -21,16 +21,11 @@ const SCREEN_HEIGHT = 64;
 const LINE_HEIGHT = 10;
 
 // CC numbers
-const CC_JOG = MoveMainKnob;  // 14
-const CC_LEFT = MoveLeft;     // 44
-const CC_RIGHT = MoveRight;   // 45
-const CC_UP = MoveUp;         // 46
-const CC_DOWN = MoveDown;     // 47
-
-export function init() {
-    refresh();
-    render();
-}
+const CC_JOG = MoveMainKnob;
+const CC_LEFT = MoveLeft;
+const CC_RIGHT = MoveRight;
+const CC_UP = MoveUp;
+const CC_DOWN = MoveDown;
 
 function refresh() {
     // Get plugin count
@@ -39,8 +34,8 @@ function refresh() {
 
     plugins = [];
     for (let i = 0; i < count; i++) {
-        const name = host_module_get_param(`plugin_name_${i}`);
-        plugins.push(name || `Plugin ${i}`);
+        const name = host_module_get_param("plugin_name_" + i);
+        plugins.push(name || ("Plugin " + i));
     }
 
     // Get current selection
@@ -97,7 +92,7 @@ function render() {
 
         // Show up to 3 params with names (limited screen space)
         for (let i = bankStart; i < Math.min(bankStart + 3, bankEnd); i++) {
-            const pname = host_module_get_param("param_name_" + i) || "P" + i;
+            const pname = host_module_get_param("param_name_" + i) || ("P" + i);
             const pval = host_module_get_param("param_value_" + i) || "0";
             const shortPname = pname.length > 8 ? pname.substring(0, 7) : pname;
             print(2, y, shortPname + ": " + pval, 1);
@@ -109,19 +104,14 @@ function render() {
     }
 }
 
-export function tick() {
-    // Could refresh periodically if needed
-}
-
-export function onMidiMessage(msg, source) {
+function handleMidi(msg, source) {
     const status = msg[0] & 0xF0;
-    const channel = msg[0] & 0x0F;
     const cc = msg[1];
     const val = msg[2];
 
     // Handle control changes
     if (status === 0xB0) {
-        // Jog wheel (CC 14) - plugin selection
+        // Jog wheel - plugin selection
         if (cc === CC_JOG) {
             if (val === 1) {
                 // Right - next plugin
@@ -181,7 +171,7 @@ export function onMidiMessage(msg, source) {
 
             if (paramIdx < paramCount) {
                 // Get current value and adjust
-                const currentStr = host_module_get_param(`param_value_${paramIdx}`) || "0";
+                const currentStr = host_module_get_param("param_value_" + paramIdx) || "0";
                 let current = parseFloat(currentStr);
 
                 // Relative change based on encoder direction
@@ -192,7 +182,7 @@ export function onMidiMessage(msg, source) {
                 if (current < 0) current = 0;
                 if (current > 1) current = 1;
 
-                host_module_set_param(`param_${paramIdx}`, String(current));
+                host_module_set_param("param_" + paramIdx, String(current));
                 render();
             }
         }
@@ -201,3 +191,21 @@ export function onMidiMessage(msg, source) {
     // Pass through to DSP for note/other handling
     host_module_send_midi(msg, source);
 }
+
+// Export via globalThis (required by Move Anything host)
+globalThis.init = function() {
+    refresh();
+    render();
+};
+
+globalThis.tick = function() {
+    // Could refresh periodically if needed
+};
+
+globalThis.onMidiMessageInternal = function(msg) {
+    handleMidi(msg, 0);
+};
+
+globalThis.onMidiMessageExternal = function(msg) {
+    handleMidi(msg, 1);
+};
