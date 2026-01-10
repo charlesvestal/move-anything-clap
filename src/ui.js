@@ -2,7 +2,7 @@
 //
 // Provides plugin browser and parameter control interface.
 
-import { CC, BUTTON } from "/shared/constants.mjs";
+import { CC } from "../../shared/constants.mjs";
 
 // State
 let plugins = [];
