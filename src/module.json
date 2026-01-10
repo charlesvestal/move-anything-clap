@@ -1,0 +1,23 @@
+{
+    "id": "clap",
+    "name": "CLAP Host",
+    "version": "0.1.0",
+    "description": "Host for CLAP audio plugins",
+    "author": "Move Anything",
+    "ui": "ui.js",
+    "dsp": "dsp.so",
+    "api_version": 1,
+    "raw_ui": true,
+    "capabilities": {
+        "audio_out": true,
+        "audio_in": false,
+        "midi_in": true,
+        "midi_out": false,
+        "midi_channels": 16,
+        "chainable": true,
+        "component_type": "sound_generator"
+    },
+    "defaults": {
+        "selected_plugin": ""
+    }
+}
