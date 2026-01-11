@@ -77,12 +77,14 @@ ${CROSS_PREFIX}g++ -O3 -shared -fPIC -std=c++14 \
     -Ithird_party/clap/include \
     -ldl
 
-# Copy files to dist
+# Copy files to dist (use cat to avoid ExtFS deallocation issues with Docker)
 echo "Packaging..."
-cp src/module.json dist/clap/
-cp src/ui.js dist/clap/
-cp build/dsp.so dist/clap/
-cp build/clap_fx.so dist/chain_audio_fx/clap/clap.so
+cat src/module.json > dist/clap/module.json
+cat src/ui.js > dist/clap/ui.js
+cat build/dsp.so > dist/clap/dsp.so
+chmod +x dist/clap/dsp.so
+cat build/clap_fx.so > dist/chain_audio_fx/clap/clap.so
+chmod +x dist/chain_audio_fx/clap/clap.so
 
 echo ""
 echo "=== Build Complete ==="
