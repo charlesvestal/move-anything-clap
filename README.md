@@ -2,6 +2,12 @@
 
 A Move Anything module that hosts arbitrary CLAP plugins in-process, usable as a standalone sound generator or as a component in Signal Chain.
 
+## Prerequisites
+
+- [Move Anything](https://github.com/charlesvestal/move-anything) installed on your Ableton Move
+- SSH access enabled: http://move.local/development/ssh
+- ARM64 Linux CLAP plugins (see "Plugin Compatibility" below)
+
 ## Features
 
 - Load any CLAP plugin from `/data/UserData/move-anything/modules/clap/plugins/`
