@@ -86,9 +86,15 @@ chmod +x dist/clap/dsp.so
 cat build/clap_fx.so > dist/chain_audio_fx/clap/clap.so
 chmod +x dist/chain_audio_fx/clap/clap.so
 
+# Create tarball for release
+cd dist
+tar -czvf clap-module.tar.gz clap/ chain_audio_fx/
+cd ..
+
 echo ""
 echo "=== Build Complete ==="
 echo "Output: dist/clap/ and dist/chain_audio_fx/clap/"
+echo "Tarball: dist/clap-module.tar.gz"
 echo ""
 echo "To install on Move:"
 echo "  ./scripts/install.sh"
