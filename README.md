@@ -1,5 +1,9 @@
 # Move Anything CLAP Host Module
 
+> **⚠️ Proof of Concept**
+>
+> This module is experimental. There are currently no known released third-party CLAP plugins that can be loaded without modification. Most plugins require rebuilding from source with headless options and ARM64 cross-compilation. See "Plugin Compatibility" below for details.
+
 A Move Anything module that hosts arbitrary CLAP plugins in-process, usable as a standalone sound generator or as a component in Signal Chain.
 
 ## Prerequisites
