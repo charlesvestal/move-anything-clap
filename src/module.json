@@ -1,12 +1,12 @@
 {
     "id": "clap",
     "name": "CLAP Host",
-    "version": "0.1.0",
+    "version": "0.1.1",
     "description": "Host for CLAP audio plugins",
     "author": "Move Anything",
     "ui": "ui.js",
     "dsp": "dsp.so",
-    "api_version": 1,
+    "api_version": 2,
     "raw_ui": true,
     "capabilities": {
         "audio_out": true,
