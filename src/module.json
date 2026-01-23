@@ -5,6 +5,7 @@
   "version": "0.3.2",
   "description": "Host for CLAP audio plugins",
   "author": "Move Anything",
+  "license": "MIT",
   "ui": "ui.js",
   "dsp": "dsp.so",
   "api_version": 2,
