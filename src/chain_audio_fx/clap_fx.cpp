@@ -9,6 +9,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
+#include <sys/time.h>
 
 /* Inline API definitions to avoid path issues */
 extern "C" {
@@ -271,13 +272,24 @@ typedef struct audio_fx_api_v2 {
 /* Forward declaration */
 static void v2_fx_log(const char *msg);
 
+/* Get current time in milliseconds */
+static uint64_t get_time_ms(void) {
+    struct timeval tv;
+    gettimeofday(&tv, NULL);
+    return (uint64_t)tv.tv_sec * 1000 + tv.tv_usec / 1000;
+}
+
 /* Per-instance state for V2 API */
 #define MAX_CACHED_PARAMS 32
+#define PLUGIN_LOAD_DEBOUNCE_MS 300  /* Wait 300ms after last scroll before loading */
 typedef struct {
     char module_dir[256];
     char selected_plugin_id[256];
     int selected_plugin_index;      /* Index in plugin_list, -1 if none */
+    int loaded_plugin_index;        /* Index of actually loaded plugin */
     int plugins_scanned;            /* Flag: has the plugin list been scanned? */
+    volatile int loading;           /* Flag: plugin is being loaded (skip processing) */
+    uint64_t pending_load_time;     /* Time (ms) when we should actually load pending plugin */
     clap_host_list_t plugin_list;
     clap_instance_t current_plugin;
     /* Cached param info for loaded plugin */
@@ -394,6 +406,10 @@ static int v2_load_plugin_by_index(clap_fx_instance_t *inst, int index) {
         return -1;
     }
 
+    /* Mark as loading - audio thread will skip processing */
+    inst->loading = 1;
+    __sync_synchronize();
+
     /* Unload current plugin if any */
     if (inst->current_plugin.plugin) {
         clap_unload_plugin(&inst->current_plugin);
@@ -405,17 +421,27 @@ static int v2_load_plugin_by_index(clap_fx_instance_t *inst, int index) {
 
     if (clap_load_plugin(info->path, info->plugin_index, &inst->current_plugin) != 0) {
         v2_fx_log("Failed to load plugin");
+        inst->loaded_plugin_index = -1;
         inst->selected_plugin_index = -1;
         inst->selected_plugin_id[0] = '\0';
         inst->cached_param_count = 0;
+        inst->pending_load_time = 0;
+        inst->loading = 0;
         return -1;
     }
 
+    /* Update both loaded and selected indices */
+    inst->loaded_plugin_index = index;
     inst->selected_plugin_index = index;
     strncpy(inst->selected_plugin_id, info->id, sizeof(inst->selected_plugin_id) - 1);
 
     /* Cache param names for this plugin */
     v2_cache_param_names(inst);
+
+    /* Clear pending load and mark as done */
+    inst->pending_load_time = 0;
+    __sync_synchronize();
+    inst->loading = 0;
     return 0;
 }
 
@@ -446,6 +472,9 @@ static void* v2_create_instance(const char *module_dir, const char *config_json)
 
     strncpy(inst->module_dir, module_dir, sizeof(inst->module_dir) - 1);
     inst->selected_plugin_index = -1;  /* No plugin selected yet */
+    inst->loaded_plugin_index = -1;    /* No plugin loaded yet */
+
+    int plugin_loaded = 0;
 
     /* Parse config JSON for plugin_id if provided */
     if (config_json && strlen(config_json) > 0) {
@@ -463,11 +492,22 @@ static void* v2_create_instance(const char *module_dir, const char *config_json)
                         if (len > 0 && len < (int)sizeof(inst->selected_plugin_id)) {
                             strncpy(inst->selected_plugin_id, pos, len);
                             inst->selected_plugin_id[len] = '\0';
-                            v2_load_plugin_by_id(inst, inst->selected_plugin_id);
+                            if (v2_load_plugin_by_id(inst, inst->selected_plugin_id) == 0) {
+                                plugin_loaded = 1;
+                            }
                         }
                     }
                 }
             }
+        }
+    }
+
+    /* If no plugin loaded from config, load first available plugin */
+    if (!plugin_loaded) {
+        v2_ensure_plugins_scanned(inst);
+        if (inst->plugin_list.count > 0) {
+            v2_fx_log("No plugin in config, loading first available");
+            v2_load_plugin_by_index(inst, 0);
         }
     }
 
@@ -489,8 +529,8 @@ static void v2_destroy_instance(void *instance) {
 
 static void v2_process_block(void *instance, int16_t *audio_inout, int frames) {
     clap_fx_instance_t *inst = (clap_fx_instance_t*)instance;
-    if (!inst || !inst->current_plugin.plugin) {
-        return;  /* Pass through */
+    if (!inst || !inst->current_plugin.plugin || inst->loading) {
+        return;  /* Pass through - no plugin or loading in progress */
     }
 
     float float_in[MOVE_FRAMES_PER_BLOCK * 2];
@@ -528,7 +568,11 @@ static void v2_set_param(void *instance, const char *key, const char *val) {
     else if (strcmp(key, "plugin_index") == 0) {
         int idx = atoi(val);
         if (idx != inst->selected_plugin_index) {
-            v2_load_plugin_by_index(inst, idx);
+            /* Update selected index and schedule debounced load */
+            inst->selected_plugin_index = idx;
+            inst->pending_load_time = get_time_ms() + PLUGIN_LOAD_DEBOUNCE_MS;
+            snprintf(msg, sizeof(msg), "Scheduled plugin load: idx=%d (debounce %dms)", idx, PLUGIN_LOAD_DEBOUNCE_MS);
+            v2_fx_log(msg);
         }
     }
     else if (strncmp(key, "param_", 6) == 0 && key[6] >= '0' && key[6] <= '9') {
@@ -553,9 +597,32 @@ static void v2_set_param(void *instance, const char *key, const char *val) {
     }
 }
 
+/* Check if a pending plugin load is ready (debounce expired) and execute it */
+static void v2_check_pending_load(clap_fx_instance_t *inst) {
+    if (!inst->pending_load_time) return;  /* No pending load */
+    if (inst->loading) return;  /* Already loading */
+
+    uint64_t now = get_time_ms();
+    if (now >= inst->pending_load_time) {
+        /* Debounce expired - actually load the plugin */
+        int idx = inst->selected_plugin_index;
+        if (idx != inst->loaded_plugin_index && idx >= 0) {
+            char msg[256];
+            snprintf(msg, sizeof(msg), "Debounce expired, loading plugin idx=%d", idx);
+            v2_fx_log(msg);
+            v2_load_plugin_by_index(inst, idx);
+        } else {
+            inst->pending_load_time = 0;  /* Nothing to do */
+        }
+    }
+}
+
 static int v2_get_param(void *instance, const char *key, char *buf, int buf_len) {
     clap_fx_instance_t *inst = (clap_fx_instance_t*)instance;
     if (!inst || !key || !buf || buf_len <= 0) return -1;
+
+    /* Check if a pending plugin load is ready */
+    v2_check_pending_load(inst);
 
     /* Ensure plugins are scanned for list queries */
     if (strncmp(key, "plugin", 6) == 0) {
