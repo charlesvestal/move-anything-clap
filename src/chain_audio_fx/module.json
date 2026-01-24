@@ -1,0 +1,20 @@
+{
+  "id": "clap",
+  "name": "CLAP FX",
+  "abbrev": "CL",
+  "version": "0.3.3",
+  "dsp": "clap.so",
+  "api_version": 2,
+  "component_type": "audio_fx",
+  "capabilities": {
+    "chainable": true,
+    "component_type": "audio_fx",
+    "chain_params": [
+      {
+        "key": "plugin_id",
+        "name": "Plugin",
+        "type": "string"
+      }
+    ]
+  }
+}

@@ -85,6 +85,7 @@ cat build/dsp.so > dist/clap/dsp.so
 chmod +x dist/clap/dsp.so
 cat build/clap_fx.so > dist/chain_audio_fx/clap/clap.so
 chmod +x dist/chain_audio_fx/clap/clap.so
+cat src/chain_audio_fx/module.json > dist/chain_audio_fx/clap/module.json
 
 # Create tarball for release
 cd dist

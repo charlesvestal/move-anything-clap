@@ -24,6 +24,7 @@ if [ -f "dist/chain_audio_fx/clap/clap.so" ]; then
     echo "Installing CLAP audio FX for Signal Chain..."
     ssh ableton@move.local "mkdir -p /data/UserData/move-anything/modules/audio_fx/clap"
     scp dist/chain_audio_fx/clap/clap.so ableton@move.local:/data/UserData/move-anything/modules/audio_fx/clap/
+    scp dist/chain_audio_fx/clap/module.json ableton@move.local:/data/UserData/move-anything/modules/audio_fx/clap/
 fi
 
 # Install chain presets if they exist
