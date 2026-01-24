@@ -1,0 +1,25 @@
+{
+    "name": "Line In + Airwindows",
+    "version": 1,
+    "chain": {
+        "input": "both",
+        "synth": {
+            "module": "linein",
+            "config": {}
+        },
+        "audio_fx": [
+            {
+                "type": "clap",
+                "params": {
+                    "plugin_id": "com.airwindows.Verbity"
+                }
+            }
+        ],
+        "knob_mappings": [
+            {"cc": 71, "target": "fx1", "param": "param_0"},
+            {"cc": 72, "target": "fx1", "param": "param_1"},
+            {"cc": 73, "target": "fx1", "param": "param_2"},
+            {"cc": 74, "target": "fx1", "param": "param_3"}
+        ]
+    }
+}

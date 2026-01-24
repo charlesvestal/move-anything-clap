@@ -1,0 +1,27 @@
+{
+    "name": "SF2 + Airwindows",
+    "version": 1,
+    "chain": {
+        "input": "midi",
+        "synth": {
+            "module": "sf2",
+            "config": {
+                "preset": 0
+            }
+        },
+        "audio_fx": [
+            {
+                "type": "clap",
+                "params": {
+                    "plugin_id": "com.airwindows.Verbity"
+                }
+            }
+        ],
+        "knob_mappings": [
+            {"cc": 71, "target": "synth", "param": "preset"},
+            {"cc": 72, "target": "fx1", "param": "param_0"},
+            {"cc": 73, "target": "fx1", "param": "param_1"},
+            {"cc": 74, "target": "fx1", "param": "param_2"}
+        ]
+    }
+}

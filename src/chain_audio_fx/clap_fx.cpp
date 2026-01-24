@@ -66,9 +66,9 @@ static void fx_log(const char *msg) {
 
 /* Find and load a plugin by ID */
 static int load_plugin_by_id(const char *plugin_id) {
-    /* Scan plugins directory */
+    /* Scan plugins directory (in sound_generators/clap/plugins/) */
     char plugins_dir[512];
-    snprintf(plugins_dir, sizeof(plugins_dir), "%s/../clap/plugins", g_module_dir);
+    snprintf(plugins_dir, sizeof(plugins_dir), "%s/../../sound_generators/clap/plugins", g_module_dir);
 
     clap_free_plugin_list(&g_plugin_list);
     if (clap_scan_plugins(plugins_dir, &g_plugin_list) != 0) {
@@ -281,17 +281,31 @@ static void v2_fx_log(const char *msg) {
         g_host->log(msg);
     }
     fprintf(stderr, "[CLAP FX v2] %s\n", msg);
+    /* Also write to file for debugging */
+    FILE *f = fopen("/tmp/clap_fx_debug.txt", "a");
+    if (f) {
+        fprintf(f, "[CLAP FX v2] %s\n", msg);
+        fclose(f);
+    }
 }
 
 static int v2_load_plugin_by_id(clap_fx_instance_t *inst, const char *plugin_id) {
+    /* Scan plugins directory (in sound_generators/clap/plugins/) */
     char plugins_dir[512];
-    snprintf(plugins_dir, sizeof(plugins_dir), "%s/../clap/plugins", inst->module_dir);
+    char msg[512];
+    snprintf(plugins_dir, sizeof(plugins_dir), "%s/../../sound_generators/clap/plugins", inst->module_dir);
+
+    snprintf(msg, sizeof(msg), "Scanning plugins at: %s (module_dir=%s)", plugins_dir, inst->module_dir);
+    v2_fx_log(msg);
 
     clap_free_plugin_list(&inst->plugin_list);
     if (clap_scan_plugins(plugins_dir, &inst->plugin_list) != 0) {
         v2_fx_log("Failed to scan plugins directory");
         return -1;
     }
+
+    snprintf(msg, sizeof(msg), "Found %d plugins, searching for: %s", inst->plugin_list.count, plugin_id);
+    v2_fx_log(msg);
 
     for (int i = 0; i < inst->plugin_list.count; i++) {
         if (strcmp(inst->plugin_list.items[i].id, plugin_id) == 0) {
@@ -300,7 +314,6 @@ static int v2_load_plugin_by_id(clap_fx_instance_t *inst, const char *plugin_id)
                 return -1;
             }
 
-            char msg[512];
             snprintf(msg, sizeof(msg), "Loading FX plugin: %s", inst->plugin_list.items[i].name);
             v2_fx_log(msg);
 
@@ -310,7 +323,6 @@ static int v2_load_plugin_by_id(clap_fx_instance_t *inst, const char *plugin_id)
         }
     }
 
-    char msg[512];
     snprintf(msg, sizeof(msg), "Plugin not found: %s", plugin_id);
     v2_fx_log(msg);
     return -1;
@@ -393,13 +405,19 @@ static void v2_set_param(void *instance, const char *key, const char *val) {
     clap_fx_instance_t *inst = (clap_fx_instance_t*)instance;
     if (!inst || !key || !val) return;
 
+    char msg[512];
+    snprintf(msg, sizeof(msg), "v2_set_param: key='%s' val='%s'", key, val);
+    v2_fx_log(msg);
+
     if (strcmp(key, "plugin_id") == 0) {
         if (strcmp(val, inst->selected_plugin_id) != 0) {
             if (inst->current_plugin.plugin) {
                 clap_unload_plugin(&inst->current_plugin);
             }
             strncpy(inst->selected_plugin_id, val, sizeof(inst->selected_plugin_id) - 1);
-            v2_load_plugin_by_id(inst, inst->selected_plugin_id);
+            int result = v2_load_plugin_by_id(inst, inst->selected_plugin_id);
+            snprintf(msg, sizeof(msg), "v2_load_plugin_by_id result: %d", result);
+            v2_fx_log(msg);
         }
     }
     else if (strncmp(key, "param_", 6) == 0) {

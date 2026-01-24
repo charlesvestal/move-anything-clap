@@ -14,8 +14,8 @@
 extern "C" {
 #endif
 
-/* Maximum plugins per directory */
-#define CLAP_HOST_MAX_PLUGINS 64
+/* Maximum plugins per directory - increased for large bundles like Airwindows (498 plugins) */
+#define CLAP_HOST_MAX_PLUGINS 512
 
 /* Plugin metadata from scanning */
 typedef struct clap_plugin_info {

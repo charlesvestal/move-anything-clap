@@ -63,7 +63,7 @@ typedef plugin_api_v2_t* (*move_plugin_init_v2_fn)(const host_api_v1_t *host);
 }
 
 /* Constants */
-#define MAX_PLUGINS 64
+#define MAX_PLUGINS 512
 #define PLUGINS_SUBDIR "plugins"
 
 /* Plugin state */
