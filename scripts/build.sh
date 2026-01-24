@@ -87,6 +87,25 @@ cat build/clap_fx.so > dist/chain_audio_fx/clap/clap.so
 chmod +x dist/chain_audio_fx/clap/clap.so
 cat src/chain_audio_fx/module.json > dist/chain_audio_fx/clap/module.json
 
+# Copy included plugins (if any)
+if [ -d "plugins" ] && [ "$(ls -A plugins/*.clap 2>/dev/null)" ]; then
+    echo "Copying included plugins..."
+    for plugin in plugins/*.clap; do
+        cat "$plugin" > "dist/clap/plugins/$(basename "$plugin")"
+    done
+fi
+
+# Copy license files
+if [ -f "LICENSE" ]; then
+    cat LICENSE > dist/clap/LICENSE
+fi
+if [ -d "LICENSES" ]; then
+    mkdir -p dist/clap/LICENSES
+    for license in LICENSES/*; do
+        cat "$license" > "dist/clap/LICENSES/$(basename "$license")"
+    done
+fi
+
 # Create tarball for release
 cd dist
 tar -czvf clap-module.tar.gz clap/ chain_audio_fx/
