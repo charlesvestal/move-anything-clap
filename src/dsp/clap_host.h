@@ -9,6 +9,7 @@
 
 #include <stdint.h>
 #include <stdbool.h>
+#include <pthread.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -22,6 +23,7 @@ typedef struct clap_plugin_info {
     char id[256];
     char name[256];
     char vendor[256];
+    char category[64];
     char path[1024];       /* Full path to .clap file */
     int  plugin_index;     /* Index within the .clap bundle */
     bool has_audio_in;
@@ -56,6 +58,7 @@ typedef struct clap_instance {
     /* Per-instance param change queue */
     clap_param_change_t param_queue[CLAP_MAX_PARAM_CHANGES];
     int param_queue_count;
+    pthread_mutex_t param_mutex;
 } clap_instance_t;
 
 /*
@@ -66,6 +69,18 @@ typedef struct clap_instance {
  * Returns: 0 on success, -1 on error
  */
 int clap_scan_plugins(const char *dir, clap_host_list_t *out);
+
+/*
+ * Infer a plugin category.
+ *
+ * Uses Airwindows name->category mapping when available, otherwise returns "Other".
+ * The description/features inputs are accepted for API compatibility.
+ */
+void clap_infer_category_from_metadata(const char *name,
+                                       const char *description,
+                                       const char *const *features,
+                                       char *category,
+                                       int category_len);
 
 /*
  * Free a plugin list

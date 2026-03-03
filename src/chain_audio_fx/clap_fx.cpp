@@ -10,6 +10,9 @@
 #include <string.h>
 #include <math.h>
 #include <sys/time.h>
+#include <ctype.h>
+
+#include "chain_audio_fx/category_browser.h"
 
 /* Inline API definitions to avoid path issues */
 extern "C" {
@@ -285,12 +288,14 @@ static uint64_t get_time_ms(void) {
 typedef struct {
     char module_dir[256];
     char selected_plugin_id[256];
-    int selected_plugin_index;      /* Index in plugin_list, -1 if none */
-    int loaded_plugin_index;        /* Index of actually loaded plugin */
+    int selected_plugin_index;      /* Display index in browser list, -1 if none */
+    int loaded_plugin_index;        /* Raw index in plugin_list of loaded plugin */
+    int selected_category_index;
     int plugins_scanned;            /* Flag: has the plugin list been scanned? */
     volatile int loading;           /* Flag: plugin is being loaded (skip processing) */
     uint64_t pending_load_time;     /* Time (ms) when we should actually load pending plugin */
     clap_host_list_t plugin_list;
+    clap_fx_browser_index_t browser_index;
     clap_instance_t current_plugin;
     /* Cached param info for loaded plugin */
     int cached_param_count;
@@ -299,6 +304,9 @@ typedef struct {
     double cached_param_min[MAX_CACHED_PARAMS];
     double cached_param_max[MAX_CACHED_PARAMS];
 } clap_fx_instance_t;
+
+/* Forward declaration */
+static int v2_load_plugin_by_id(clap_fx_instance_t *inst, const char *plugin_id);
 
 /* Sanitize a param name for use as a key (lowercase, no spaces) */
 static void sanitize_param_key(const char *name, char *key, int key_len) {
@@ -356,6 +364,122 @@ static int v2_find_param_by_key(clap_fx_instance_t *inst, const char *key) {
     return -1;
 }
 
+/* Extract a JSON string field from a small object (best-effort parser). */
+static int json_extract_string(const char *json, const char *key, char *out, int out_len) {
+    if (!json || !key || !out || out_len <= 0) return -1;
+    out[0] = '\0';
+
+    char pattern[64];
+    snprintf(pattern, sizeof(pattern), "\"%s\"", key);
+    const char *pos = strstr(json, pattern);
+    if (!pos) return -1;
+
+    const char *colon = strchr(pos + strlen(pattern), ':');
+    if (!colon) return -1;
+
+    const char *q1 = strchr(colon, '"');
+    if (!q1) return -1;
+    q1++;
+
+    const char *q2 = strchr(q1, '"');
+    if (!q2) return -1;
+
+    int len = (int)(q2 - q1);
+    if (len <= 0) return -1;
+    if (len >= out_len) len = out_len - 1;
+    strncpy(out, q1, len);
+    out[len] = '\0';
+    return 0;
+}
+
+/* Apply a state JSON object: {"plugin_id":"...","params":[...]} */
+static void v2_apply_state_json(clap_fx_instance_t *inst, const char *json) {
+    if (!inst || !json || !json[0]) return;
+
+    /* State restore must win over any prior debounced browser selection. */
+    inst->pending_load_time = 0;
+
+    /* Restore plugin selection first, so param indices map to the right plugin. */
+    char plugin_id[256] = "";
+    if (json_extract_string(json, "plugin_id", plugin_id, sizeof(plugin_id)) == 0 &&
+        plugin_id[0]) {
+        if (strcmp(plugin_id, inst->selected_plugin_id) != 0) {
+            v2_load_plugin_by_id(inst, plugin_id);
+        }
+    }
+
+    /* Keep browser selection aligned to the currently loaded plugin even when
+       plugin_id matched and we skipped an explicit reload above. */
+    if (inst->loaded_plugin_index >= 0 && inst->loaded_plugin_index < inst->plugin_list.count) {
+        int display_idx = inst->browser_index.raw_to_display[inst->loaded_plugin_index];
+        if (display_idx >= 0) {
+            inst->selected_plugin_index = display_idx;
+            inst->selected_category_index =
+                clap_fx_category_index_for_display(&inst->browser_index, display_idx);
+        }
+        strncpy(inst->selected_plugin_id,
+                inst->plugin_list.items[inst->loaded_plugin_index].id,
+                sizeof(inst->selected_plugin_id) - 1);
+        inst->selected_plugin_id[sizeof(inst->selected_plugin_id) - 1] = '\0';
+    }
+
+    if (!inst->current_plugin.plugin) return;
+
+    const char *params_key = strstr(json, "\"params\"");
+    if (!params_key) return;
+    const char *arr = strchr(params_key, '[');
+    if (!arr) return;
+
+    int param_count = clap_param_count(&inst->current_plugin);
+    int idx = 0;
+    const char *p = arr + 1;
+
+    while (*p && *p != ']' && idx < param_count) {
+        while (*p && (isspace((unsigned char)*p) || *p == ',')) p++;
+        if (*p == ']' || !*p) break;
+
+        char *endptr = NULL;
+        double value = strtod(p, &endptr);
+        if (endptr != p) {
+            clap_param_set(&inst->current_plugin, idx, value);
+            idx++;
+            p = endptr;
+        } else {
+            p++;
+        }
+    }
+}
+
+/* Build state JSON object into caller buffer. */
+static int v2_build_state_json(clap_fx_instance_t *inst, char *buf, int buf_len) {
+    if (!inst || !buf || buf_len <= 0) return -1;
+
+    int off = 0;
+    off += snprintf(buf + off, buf_len - off,
+                    "{\"plugin_id\":\"%s\",\"params\":[",
+                    inst->selected_plugin_id);
+    if (off >= buf_len - 1) return buf_len - 1;
+
+    int param_count = 0;
+    if (inst->current_plugin.plugin) {
+        param_count = clap_param_count(&inst->current_plugin);
+    }
+
+    for (int i = 0; i < param_count; i++) {
+        double value = clap_param_get(&inst->current_plugin, i);
+        off += snprintf(buf + off, buf_len - off, "%s%.9g",
+                        (i > 0) ? "," : "", value);
+        if (off >= buf_len - 4) break;
+    }
+
+    off += snprintf(buf + off, buf_len - off, "]}");
+    if (off >= buf_len) {
+        buf[buf_len - 1] = '\0';
+        return buf_len - 1;
+    }
+    return off;
+}
+
 static void v2_fx_log(const char *msg) {
     if (g_host && g_host->log) {
         g_host->log(msg);
@@ -367,6 +491,16 @@ static void v2_fx_log(const char *msg) {
         fprintf(f, "[CLAP FX v2] %s\n", msg);
         fclose(f);
     }
+}
+
+static int v2_display_to_raw_index(clap_fx_instance_t *inst, int display_index) {
+    if (!inst) return -1;
+    if (display_index < 0 || display_index >= inst->browser_index.display_count) return -1;
+    return inst->browser_index.display_to_raw[display_index];
+}
+
+static int v2_current_raw_index(clap_fx_instance_t *inst) {
+    return v2_display_to_raw_index(inst, inst->selected_plugin_index);
 }
 
 /* Ensure plugin list is scanned (only once per instance) */
@@ -382,7 +516,11 @@ static void v2_ensure_plugins_scanned(clap_fx_instance_t *inst) {
 
     clap_free_plugin_list(&inst->plugin_list);
     if (clap_scan_plugins(plugins_dir, &inst->plugin_list) == 0) {
-        snprintf(msg, sizeof(msg), "Found %d plugins", inst->plugin_list.count);
+        clap_fx_build_browser_index(&inst->plugin_list, &inst->browser_index);
+        snprintf(msg, sizeof(msg), "Found %d plugins (%d FX across %d categories)",
+                 inst->plugin_list.count,
+                 inst->browser_index.display_count,
+                 inst->browser_index.category_count);
         v2_fx_log(msg);
     } else {
         v2_fx_log("Failed to scan plugins directory");
@@ -390,8 +528,8 @@ static void v2_ensure_plugins_scanned(clap_fx_instance_t *inst) {
     inst->plugins_scanned = 1;
 }
 
-/* Load plugin by index in the scanned list */
-static int v2_load_plugin_by_index(clap_fx_instance_t *inst, int index) {
+/* Load plugin by raw index in scanned plugin_list */
+static int v2_load_plugin_by_raw_index(clap_fx_instance_t *inst, int index) {
     v2_ensure_plugins_scanned(inst);
 
     if (index < 0 || index >= inst->plugin_list.count) {
@@ -423,6 +561,7 @@ static int v2_load_plugin_by_index(clap_fx_instance_t *inst, int index) {
         v2_fx_log("Failed to load plugin");
         inst->loaded_plugin_index = -1;
         inst->selected_plugin_index = -1;
+        inst->selected_category_index = -1;
         inst->selected_plugin_id[0] = '\0';
         inst->cached_param_count = 0;
         inst->pending_load_time = 0;
@@ -430,9 +569,11 @@ static int v2_load_plugin_by_index(clap_fx_instance_t *inst, int index) {
         return -1;
     }
 
-    /* Update both loaded and selected indices */
+    /* Update loaded raw index and selected display index */
     inst->loaded_plugin_index = index;
-    inst->selected_plugin_index = index;
+    inst->selected_plugin_index = inst->browser_index.raw_to_display[index];
+    inst->selected_category_index =
+        clap_fx_category_index_for_display(&inst->browser_index, inst->selected_plugin_index);
     strncpy(inst->selected_plugin_id, info->id, sizeof(inst->selected_plugin_id) - 1);
 
     /* Cache param names for this plugin */
@@ -445,6 +586,15 @@ static int v2_load_plugin_by_index(clap_fx_instance_t *inst, int index) {
     return 0;
 }
 
+static int v2_load_plugin_by_display_index(clap_fx_instance_t *inst, int display_index) {
+    int raw_index = v2_display_to_raw_index(inst, display_index);
+    if (raw_index < 0) {
+        v2_fx_log("Display index out of range");
+        return -1;
+    }
+    return v2_load_plugin_by_raw_index(inst, raw_index);
+}
+
 static int v2_load_plugin_by_id(clap_fx_instance_t *inst, const char *plugin_id) {
     v2_ensure_plugins_scanned(inst);
 
@@ -454,8 +604,8 @@ static int v2_load_plugin_by_id(clap_fx_instance_t *inst, const char *plugin_id)
 
     for (int i = 0; i < inst->plugin_list.count; i++) {
         if (strcmp(inst->plugin_list.items[i].id, plugin_id) == 0) {
-            /* Found - load by index */
-            return v2_load_plugin_by_index(inst, i);
+            /* Found - load by raw index */
+            return v2_load_plugin_by_raw_index(inst, i);
         }
     }
 
@@ -473,6 +623,7 @@ static void* v2_create_instance(const char *module_dir, const char *config_json)
     strncpy(inst->module_dir, module_dir, sizeof(inst->module_dir) - 1);
     inst->selected_plugin_index = -1;  /* No plugin selected yet */
     inst->loaded_plugin_index = -1;    /* No plugin loaded yet */
+    inst->selected_category_index = -1;
 
     int plugin_loaded = 0;
 
@@ -505,9 +656,9 @@ static void* v2_create_instance(const char *module_dir, const char *config_json)
     /* If no plugin loaded from config, load first available plugin */
     if (!plugin_loaded) {
         v2_ensure_plugins_scanned(inst);
-        if (inst->plugin_list.count > 0) {
+        if (inst->browser_index.display_count > 0) {
             v2_fx_log("No plugin in config, loading first available");
-            v2_load_plugin_by_index(inst, 0);
+            v2_load_plugin_by_display_index(inst, 0);
         }
     }
 
@@ -567,13 +718,27 @@ static void v2_set_param(void *instance, const char *key, const char *val) {
     }
     else if (strcmp(key, "plugin_index") == 0) {
         int idx = atoi(val);
-        if (idx != inst->selected_plugin_index) {
+        if (idx >= 0 && idx < inst->browser_index.display_count && idx != inst->selected_plugin_index) {
             /* Update selected index and schedule debounced load */
             inst->selected_plugin_index = idx;
+            inst->selected_category_index =
+                clap_fx_category_index_for_display(&inst->browser_index, idx);
             inst->pending_load_time = get_time_ms() + PLUGIN_LOAD_DEBOUNCE_MS;
             snprintf(msg, sizeof(msg), "Scheduled plugin load: idx=%d (debounce %dms)", idx, PLUGIN_LOAD_DEBOUNCE_MS);
             v2_fx_log(msg);
         }
+    }
+    else if (strcmp(key, "jump_to_category") == 0) {
+        int category_index = atoi(val);
+        int target_display = clap_fx_jump_display_index_for_category(&inst->browser_index, category_index);
+        if (target_display >= 0) {
+            inst->selected_plugin_index = target_display;
+            inst->selected_category_index = category_index;
+            v2_load_plugin_by_display_index(inst, target_display);
+        }
+    }
+    else if (strcmp(key, "state") == 0) {
+        v2_apply_state_json(inst, val);
     }
     else if (strncmp(key, "param_", 6) == 0 && key[6] >= '0' && key[6] <= '9') {
         /* param_0, param_1, etc. - direct index */
@@ -605,12 +770,12 @@ static void v2_check_pending_load(clap_fx_instance_t *inst) {
     uint64_t now = get_time_ms();
     if (now >= inst->pending_load_time) {
         /* Debounce expired - actually load the plugin */
-        int idx = inst->selected_plugin_index;
-        if (idx != inst->loaded_plugin_index && idx >= 0) {
+        int selected_raw = v2_current_raw_index(inst);
+        if (selected_raw >= 0 && selected_raw != inst->loaded_plugin_index) {
             char msg[256];
-            snprintf(msg, sizeof(msg), "Debounce expired, loading plugin idx=%d", idx);
+            snprintf(msg, sizeof(msg), "Debounce expired, loading plugin idx=%d", inst->selected_plugin_index);
             v2_fx_log(msg);
-            v2_load_plugin_by_index(inst, idx);
+            v2_load_plugin_by_display_index(inst, inst->selected_plugin_index);
         } else {
             inst->pending_load_time = 0;  /* Nothing to do */
         }
@@ -624,42 +789,55 @@ static int v2_get_param(void *instance, const char *key, char *buf, int buf_len)
     /* Check if a pending plugin load is ready */
     v2_check_pending_load(inst);
 
-    /* Ensure plugins are scanned for list queries */
-    if (strncmp(key, "plugin", 6) == 0) {
-        v2_ensure_plugins_scanned(inst);
-    }
+    v2_ensure_plugins_scanned(inst);
 
     /* Debug: log all get_param calls */
     char msg[512];
     snprintf(msg, sizeof(msg), "v2_get_param: key='%s' plugin_count=%d selected_idx=%d",
-             key, inst->plugin_list.count, inst->selected_plugin_index);
+             key, inst->browser_index.display_count, inst->selected_plugin_index);
     v2_fx_log(msg);
+
+    int selected_raw = v2_current_raw_index(inst);
 
     if (strcmp(key, "plugin_id") == 0) {
         return snprintf(buf, buf_len, "%s", inst->selected_plugin_id);
     }
     else if (strcmp(key, "plugin_name") == 0 || strcmp(key, "preset_name") == 0) {
-        if (inst->selected_plugin_index >= 0 && inst->selected_plugin_index < inst->plugin_list.count) {
-            return snprintf(buf, buf_len, "%s", inst->plugin_list.items[inst->selected_plugin_index].name);
+        if (selected_raw >= 0 && selected_raw < inst->plugin_list.count) {
+            return snprintf(buf, buf_len, "%s", inst->plugin_list.items[selected_raw].name);
         }
         return snprintf(buf, buf_len, "None");
     }
     else if (strcmp(key, "plugin_count") == 0) {
-        return snprintf(buf, buf_len, "%d", inst->plugin_list.count);
+        return snprintf(buf, buf_len, "%d", inst->browser_index.display_count);
     }
     else if (strcmp(key, "plugin_index") == 0) {
         return snprintf(buf, buf_len, "%d", inst->selected_plugin_index >= 0 ? inst->selected_plugin_index : 0);
     }
     /* plugin_<idx>_name - for list display */
     else if (strncmp(key, "plugin_", 7) == 0 && strstr(key, "_name")) {
-        int idx = atoi(key + 7);
-        if (idx >= 0 && idx < inst->plugin_list.count) {
-            return snprintf(buf, buf_len, "%s", inst->plugin_list.items[idx].name);
+        int display_idx = atoi(key + 7);
+        int raw_idx = v2_display_to_raw_index(inst, display_idx);
+        if (raw_idx >= 0 && raw_idx < inst->plugin_list.count) {
+            return snprintf(buf, buf_len, "%s", inst->plugin_list.items[raw_idx].name);
         }
         return snprintf(buf, buf_len, "---");
     }
+    else if (strcmp(key, "bank_name") == 0) {
+        const char *category = clap_fx_category_name_for_display(&inst->browser_index, inst->selected_plugin_index);
+        if (category && category[0]) {
+            return snprintf(buf, buf_len, "%s", category);
+        }
+        return snprintf(buf, buf_len, "Other");
+    }
+    else if (strcmp(key, "category_list") == 0) {
+        return clap_fx_write_category_items_json(&inst->browser_index, buf, buf_len);
+    }
     else if (strcmp(key, "param_count") == 0) {
         return snprintf(buf, buf_len, "%d", clap_param_count(&inst->current_plugin));
+    }
+    else if (strcmp(key, "state") == 0) {
+        return v2_build_state_json(inst, buf, buf_len);
     }
     /* chain_params - return metadata array for UI display */
     else if (strcmp(key, "chain_params") == 0) {
@@ -704,8 +882,8 @@ static int v2_get_param(void *instance, const char *key, char *buf, int buf_len)
     }
     /* Handle 'name' query (alias for plugin_name) */
     else if (strcmp(key, "name") == 0) {
-        if (inst->selected_plugin_index >= 0 && inst->selected_plugin_index < inst->plugin_list.count) {
-            return snprintf(buf, buf_len, "%s", inst->plugin_list.items[inst->selected_plugin_index].name);
+        if (selected_raw >= 0 && selected_raw < inst->plugin_list.count) {
+            return snprintf(buf, buf_len, "%s", inst->plugin_list.items[selected_raw].name);
         }
         return snprintf(buf, buf_len, "CLAP FX");
     }
@@ -733,7 +911,19 @@ static int v2_get_param(void *instance, const char *key, char *buf, int buf_len)
                     "\"name_param\":\"plugin_name\","
                     "\"children\":null,"
                     "\"knobs\":[\"param_0\",\"param_1\",\"param_2\",\"param_3\",\"param_4\",\"param_5\",\"param_6\",\"param_7\"],"
-                    "\"params\":[\"param_0\",\"param_1\",\"param_2\",\"param_3\",\"param_4\",\"param_5\",\"param_6\",\"param_7\"]"
+                    "\"params\":["
+                        "\"param_0\",\"param_1\",\"param_2\",\"param_3\",\"param_4\",\"param_5\",\"param_6\",\"param_7\","
+                        "{\"level\":\"category_jump\",\"label\":\"Jump to Category\"}"
+                    "]"
+                "},"
+                "\"category_jump\":{"
+                    "\"label\":\"Jump to Category\","
+                    "\"items_param\":\"category_list\","
+                    "\"select_param\":\"jump_to_category\","
+                    "\"navigate_to\":\"root\","
+                    "\"children\":null,"
+                    "\"knobs\":[],"
+                    "\"params\":[]"
                 "}"
             "}"
         "}";
