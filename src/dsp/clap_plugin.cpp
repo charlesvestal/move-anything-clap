@@ -71,8 +71,10 @@ static const host_api_v1_t *g_host = NULL;
 static plugin_api_v1_t g_plugin_api;
 
 static clap_host_list_t g_plugin_list = {0};
+static clap_module_list_t g_module_list = {0};
 static clap_instance_t g_current_plugin = {0};
 static int g_selected_index = -1;
+static int g_selected_module = 0;
 static char g_module_dir[256] = "";
 static int g_octave_transpose = 0;
 
@@ -142,12 +144,14 @@ static int on_load(const char *module_dir, const char *json_defaults) {
     strncpy(g_module_dir, module_dir, sizeof(g_module_dir) - 1);
     g_module_dir[sizeof(g_module_dir) - 1] = '\0';
 
-    /* Scan for available plugins */
+    /* Scan for available plugins and build module list */
     scan_plugins();
+    clap_build_module_list(&g_plugin_list, &g_module_list);
 
     /* Auto-load first plugin if available */
-    if (g_plugin_list.count > 0) {
-        g_selected_index = 0;
+    if (g_module_list.count > 0) {
+        g_selected_module = 0;
+        g_selected_index = g_module_list.items[0].first_plugin;
         load_selected_plugin();
     }
 
@@ -185,7 +189,27 @@ static void on_midi(const uint8_t *msg, int len, int source) {
 static void set_param(const char *key, const char *val) {
     if (!key || !val) return;
 
-    if (strcmp(key, "selected_plugin") == 0) {
+    if (strcmp(key, "bank_index") == 0) {
+        int idx = atoi(val);
+        if (idx >= 0 && idx < g_module_list.count && idx != g_selected_module) {
+            g_selected_module = idx;
+            g_selected_index = g_module_list.items[idx].first_plugin;
+            g_param_bank = 0;
+            load_selected_plugin();
+        }
+    }
+    else if (strcmp(key, "preset") == 0) {
+        if (g_selected_module >= 0 && g_selected_module < g_module_list.count) {
+            int preset = atoi(val);
+            int absolute = g_module_list.items[g_selected_module].first_plugin + preset;
+            if (absolute >= 0 && absolute < g_plugin_list.count && absolute != g_selected_index) {
+                g_selected_index = absolute;
+                g_param_bank = 0;
+                load_selected_plugin();
+            }
+        }
+    }
+    else if (strcmp(key, "selected_plugin") == 0) {
         int idx = atoi(val);
         if (idx >= 0 && idx < g_plugin_list.count && idx != g_selected_index) {
             g_selected_index = idx;
@@ -194,11 +218,15 @@ static void set_param(const char *key, const char *val) {
     }
     else if (strcmp(key, "refresh") == 0) {
         scan_plugins();
+        clap_build_module_list(&g_plugin_list, &g_module_list);
     }
     else if (strcmp(key, "octave_transpose") == 0) {
         g_octave_transpose = atoi(val);
         if (g_octave_transpose < -2) g_octave_transpose = -2;
         if (g_octave_transpose > 2) g_octave_transpose = 2;
+    }
+    else if (strcmp(key, "all_notes_off") == 0) {
+        /* No-op: plugin reload handles note cleanup */
     }
     else if (strcmp(key, "param_bank") == 0) {
         g_param_bank = atoi(val);
@@ -214,24 +242,93 @@ static void set_param(const char *key, const char *val) {
 static int get_param(const char *key, char *buf, int buf_len) {
     if (!key || !buf || buf_len <= 0) return -1;
 
-    if (strcmp(key, "plugin_count") == 0) {
-        return snprintf(buf, buf_len, "%d", g_plugin_list.count);
+    /* Bank (module) params */
+    if (strcmp(key, "bank_count") == 0) {
+        return snprintf(buf, buf_len, "%d", g_module_list.count);
+    }
+    else if (strcmp(key, "bank_index") == 0) {
+        return snprintf(buf, buf_len, "%d", g_selected_module);
+    }
+    else if (strcmp(key, "bank_name") == 0) {
+        if (g_selected_module >= 0 && g_selected_module < g_module_list.count) {
+            return snprintf(buf, buf_len, "%s", g_module_list.items[g_selected_module].name);
+        }
+        return snprintf(buf, buf_len, "None");
+    }
+
+    /* Preset params (relative to selected bank/module) */
+    else if (strcmp(key, "preset_count") == 0) {
+        if (g_selected_module >= 0 && g_selected_module < g_module_list.count) {
+            return snprintf(buf, buf_len, "%d", g_module_list.items[g_selected_module].plugin_count);
+        }
+        return snprintf(buf, buf_len, "0");
+    }
+    else if (strcmp(key, "preset") == 0) {
+        if (g_selected_module >= 0 && g_selected_module < g_module_list.count) {
+            int preset = g_selected_index - g_module_list.items[g_selected_module].first_plugin;
+            return snprintf(buf, buf_len, "%d", preset);
+        }
+        return snprintf(buf, buf_len, "0");
+    }
+    else if (strcmp(key, "preset_name") == 0) {
+        if (g_selected_index >= 0 && g_selected_index < g_plugin_list.count) {
+            return snprintf(buf, buf_len, "%s", g_plugin_list.items[g_selected_index].name);
+        }
+        return snprintf(buf, buf_len, "None");
+    }
+    else if (strcmp(key, "patch_in_bank") == 0) {
+        if (g_selected_module >= 0 && g_selected_module < g_module_list.count) {
+            int preset = g_selected_index - g_module_list.items[g_selected_module].first_plugin;
+            return snprintf(buf, buf_len, "%d", preset + 1);
+        }
+        return snprintf(buf, buf_len, "1");
+    }
+
+    /* Airwindows / category info */
+    else if (strcmp(key, "is_airwindows") == 0) {
+        if (g_selected_module >= 0 && g_selected_module < g_module_list.count) {
+            return snprintf(buf, buf_len, "%d", g_module_list.items[g_selected_module].is_airwindows ? 1 : 0);
+        }
+        return snprintf(buf, buf_len, "0");
+    }
+    else if (strcmp(key, "plugin_category") == 0) {
+        if (g_selected_index >= 0 && g_selected_index < g_plugin_list.count) {
+            return snprintf(buf, buf_len, "%s", g_plugin_list.items[g_selected_index].category);
+        }
+        return snprintf(buf, buf_len, "");
+    }
+
+    /* Legacy plugin list params (full flat list) */
+    else if (strcmp(key, "plugin_count") == 0) {
+        if (g_selected_module >= 0 && g_selected_module < g_module_list.count) {
+            return snprintf(buf, buf_len, "%d", g_module_list.items[g_selected_module].plugin_count);
+        }
+        return snprintf(buf, buf_len, "0");
     }
     else if (strncmp(key, "plugin_name_", 12) == 0) {
         int idx = atoi(key + 12);
-        if (idx >= 0 && idx < g_plugin_list.count) {
-            return snprintf(buf, buf_len, "%s", g_plugin_list.items[idx].name);
+        if (g_selected_module >= 0 && g_selected_module < g_module_list.count) {
+            int absolute = g_module_list.items[g_selected_module].first_plugin + idx;
+            if (absolute >= 0 && absolute < g_plugin_list.count) {
+                return snprintf(buf, buf_len, "%s", g_plugin_list.items[absolute].name);
+            }
         }
         return -1;
     }
     else if (strncmp(key, "plugin_id_", 10) == 0) {
         int idx = atoi(key + 10);
-        if (idx >= 0 && idx < g_plugin_list.count) {
-            return snprintf(buf, buf_len, "%s", g_plugin_list.items[idx].id);
+        if (g_selected_module >= 0 && g_selected_module < g_module_list.count) {
+            int absolute = g_module_list.items[g_selected_module].first_plugin + idx;
+            if (absolute >= 0 && absolute < g_plugin_list.count) {
+                return snprintf(buf, buf_len, "%s", g_plugin_list.items[absolute].id);
+            }
         }
         return -1;
     }
     else if (strcmp(key, "selected_plugin") == 0) {
+        if (g_selected_module >= 0 && g_selected_module < g_module_list.count) {
+            return snprintf(buf, buf_len, "%d", g_selected_index - g_module_list.items[g_selected_module].first_plugin);
+        }
         return snprintf(buf, buf_len, "%d", g_selected_index);
     }
     else if (strcmp(key, "current_plugin_name") == 0) {
@@ -240,6 +337,8 @@ static int get_param(const char *key, char *buf, int buf_len) {
         }
         return snprintf(buf, buf_len, "None");
     }
+
+    /* Other params */
     else if (strcmp(key, "octave_transpose") == 0) {
         return snprintf(buf, buf_len, "%d", g_octave_transpose);
     }
@@ -261,6 +360,52 @@ static int get_param(const char *key, char *buf, int buf_len) {
         int idx = atoi(key + 12);
         double value = clap_param_get(&g_current_plugin, idx);
         return snprintf(buf, buf_len, "%.3f", value);
+    }
+
+    /* Module list for Shadow UI menu */
+    else if (strcmp(key, "module_list") == 0) {
+        int written = snprintf(buf, buf_len, "[");
+        for (int i = 0; i < g_module_list.count && written < buf_len - 80; i++) {
+            if (i > 0) written += snprintf(buf + written, buf_len - written, ",");
+            /* Escape module name for JSON */
+            written += snprintf(buf + written, buf_len - written, "{\"label\":\"");
+            for (const char *p = g_module_list.items[i].name; *p && written < buf_len - 10; p++) {
+                if (*p == '"' || *p == '\\') buf[written++] = '\\';
+                buf[written++] = *p;
+            }
+            written += snprintf(buf + written, buf_len - written, "\",\"index\":%d}", i);
+        }
+        written += snprintf(buf + written, buf_len - written, "]");
+        return written;
+    }
+
+    /* UI hierarchy for shadow parameter editor */
+    else if (strcmp(key, "ui_hierarchy") == 0) {
+        const char *hierarchy = "{"
+            "\"modes\":null,"
+            "\"levels\":{"
+                "\"root\":{"
+                    "\"list_param\":\"preset\","
+                    "\"count_param\":\"preset_count\","
+                    "\"name_param\":\"preset_name\","
+                    "\"children\":null,"
+                    "\"knobs\":[\"param_0\",\"param_1\",\"param_2\",\"param_3\",\"param_4\",\"param_5\",\"param_6\",\"param_7\"],"
+                    "\"params\":["
+                        "\"param_0\",\"param_1\",\"param_2\",\"param_3\",\"param_4\",\"param_5\",\"param_6\",\"param_7\","
+                        "{\"level\":\"modules\",\"label\":\"Choose Module\"}"
+                    "]"
+                "},"
+                "\"modules\":{"
+                    "\"label\":\"CLAP Modules\","
+                    "\"items_param\":\"module_list\","
+                    "\"select_param\":\"bank_index\","
+                    "\"children\":null,"
+                    "\"knobs\":[],"
+                    "\"params\":[]"
+                "}"
+            "}"
+        "}";
+        return snprintf(buf, buf_len, "%s", hierarchy);
     }
 
     return -1;
@@ -314,8 +459,10 @@ extern "C" plugin_api_v1_t* move_plugin_init_v1(const host_api_v1_t *host) {
 typedef struct {
     char module_dir[256];
     clap_host_list_t plugin_list;
+    clap_module_list_t module_list;
     clap_instance_t current_plugin;
     int selected_index;
+    int selected_module;
     int octave_transpose;
     int param_bank;
 } clap_host_instance_t;
@@ -378,9 +525,11 @@ static void* v2_create_instance(const char *module_dir, const char *json_default
     inst->selected_index = -1;
 
     v2_scan_plugins(inst);
+    clap_build_module_list(&inst->plugin_list, &inst->module_list);
 
-    if (inst->plugin_list.count > 0) {
-        inst->selected_index = 0;
+    if (inst->module_list.count > 0) {
+        inst->selected_module = 0;
+        inst->selected_index = inst->module_list.items[0].first_plugin;
         v2_load_selected_plugin(inst);
     }
 
@@ -427,7 +576,27 @@ static void v2_set_param(void *instance, const char *key, const char *val) {
     clap_host_instance_t *inst = (clap_host_instance_t*)instance;
     if (!inst || !key || !val) return;
 
-    if (strcmp(key, "selected_plugin") == 0) {
+    if (strcmp(key, "bank_index") == 0) {
+        int idx = atoi(val);
+        if (idx >= 0 && idx < inst->module_list.count && idx != inst->selected_module) {
+            inst->selected_module = idx;
+            inst->selected_index = inst->module_list.items[idx].first_plugin;
+            inst->param_bank = 0;
+            v2_load_selected_plugin(inst);
+        }
+    }
+    else if (strcmp(key, "preset") == 0) {
+        if (inst->selected_module >= 0 && inst->selected_module < inst->module_list.count) {
+            int preset = atoi(val);
+            int absolute = inst->module_list.items[inst->selected_module].first_plugin + preset;
+            if (absolute >= 0 && absolute < inst->plugin_list.count && absolute != inst->selected_index) {
+                inst->selected_index = absolute;
+                inst->param_bank = 0;
+                v2_load_selected_plugin(inst);
+            }
+        }
+    }
+    else if (strcmp(key, "selected_plugin") == 0) {
         int idx = atoi(val);
         if (idx >= 0 && idx < inst->plugin_list.count && idx != inst->selected_index) {
             inst->selected_index = idx;
@@ -436,11 +605,15 @@ static void v2_set_param(void *instance, const char *key, const char *val) {
     }
     else if (strcmp(key, "refresh") == 0) {
         v2_scan_plugins(inst);
+        clap_build_module_list(&inst->plugin_list, &inst->module_list);
     }
     else if (strcmp(key, "octave_transpose") == 0) {
         inst->octave_transpose = atoi(val);
         if (inst->octave_transpose < -2) inst->octave_transpose = -2;
         if (inst->octave_transpose > 2) inst->octave_transpose = 2;
+    }
+    else if (strcmp(key, "all_notes_off") == 0) {
+        /* No-op: plugin reload handles note cleanup */
     }
     else if (strcmp(key, "param_bank") == 0) {
         inst->param_bank = atoi(val);
@@ -457,24 +630,93 @@ static int v2_get_param(void *instance, const char *key, char *buf, int buf_len)
     clap_host_instance_t *inst = (clap_host_instance_t*)instance;
     if (!inst || !key || !buf || buf_len <= 0) return -1;
 
-    if (strcmp(key, "plugin_count") == 0) {
-        return snprintf(buf, buf_len, "%d", inst->plugin_list.count);
+    /* Bank (module) params */
+    if (strcmp(key, "bank_count") == 0) {
+        return snprintf(buf, buf_len, "%d", inst->module_list.count);
+    }
+    else if (strcmp(key, "bank_index") == 0) {
+        return snprintf(buf, buf_len, "%d", inst->selected_module);
+    }
+    else if (strcmp(key, "bank_name") == 0) {
+        if (inst->selected_module >= 0 && inst->selected_module < inst->module_list.count) {
+            return snprintf(buf, buf_len, "%s", inst->module_list.items[inst->selected_module].name);
+        }
+        return snprintf(buf, buf_len, "None");
+    }
+
+    /* Preset params (relative to selected bank/module) */
+    else if (strcmp(key, "preset_count") == 0) {
+        if (inst->selected_module >= 0 && inst->selected_module < inst->module_list.count) {
+            return snprintf(buf, buf_len, "%d", inst->module_list.items[inst->selected_module].plugin_count);
+        }
+        return snprintf(buf, buf_len, "0");
+    }
+    else if (strcmp(key, "preset") == 0) {
+        if (inst->selected_module >= 0 && inst->selected_module < inst->module_list.count) {
+            int preset = inst->selected_index - inst->module_list.items[inst->selected_module].first_plugin;
+            return snprintf(buf, buf_len, "%d", preset);
+        }
+        return snprintf(buf, buf_len, "0");
+    }
+    else if (strcmp(key, "preset_name") == 0) {
+        if (inst->selected_index >= 0 && inst->selected_index < inst->plugin_list.count) {
+            return snprintf(buf, buf_len, "%s", inst->plugin_list.items[inst->selected_index].name);
+        }
+        return snprintf(buf, buf_len, "None");
+    }
+    else if (strcmp(key, "patch_in_bank") == 0) {
+        if (inst->selected_module >= 0 && inst->selected_module < inst->module_list.count) {
+            int preset = inst->selected_index - inst->module_list.items[inst->selected_module].first_plugin;
+            return snprintf(buf, buf_len, "%d", preset + 1);
+        }
+        return snprintf(buf, buf_len, "1");
+    }
+
+    /* Airwindows / category info */
+    else if (strcmp(key, "is_airwindows") == 0) {
+        if (inst->selected_module >= 0 && inst->selected_module < inst->module_list.count) {
+            return snprintf(buf, buf_len, "%d", inst->module_list.items[inst->selected_module].is_airwindows ? 1 : 0);
+        }
+        return snprintf(buf, buf_len, "0");
+    }
+    else if (strcmp(key, "plugin_category") == 0) {
+        if (inst->selected_index >= 0 && inst->selected_index < inst->plugin_list.count) {
+            return snprintf(buf, buf_len, "%s", inst->plugin_list.items[inst->selected_index].category);
+        }
+        return snprintf(buf, buf_len, "");
+    }
+
+    /* Legacy plugin list params (scoped to selected bank) */
+    else if (strcmp(key, "plugin_count") == 0) {
+        if (inst->selected_module >= 0 && inst->selected_module < inst->module_list.count) {
+            return snprintf(buf, buf_len, "%d", inst->module_list.items[inst->selected_module].plugin_count);
+        }
+        return snprintf(buf, buf_len, "0");
     }
     else if (strncmp(key, "plugin_name_", 12) == 0) {
         int idx = atoi(key + 12);
-        if (idx >= 0 && idx < inst->plugin_list.count) {
-            return snprintf(buf, buf_len, "%s", inst->plugin_list.items[idx].name);
+        if (inst->selected_module >= 0 && inst->selected_module < inst->module_list.count) {
+            int absolute = inst->module_list.items[inst->selected_module].first_plugin + idx;
+            if (absolute >= 0 && absolute < inst->plugin_list.count) {
+                return snprintf(buf, buf_len, "%s", inst->plugin_list.items[absolute].name);
+            }
         }
         return -1;
     }
     else if (strncmp(key, "plugin_id_", 10) == 0) {
         int idx = atoi(key + 10);
-        if (idx >= 0 && idx < inst->plugin_list.count) {
-            return snprintf(buf, buf_len, "%s", inst->plugin_list.items[idx].id);
+        if (inst->selected_module >= 0 && inst->selected_module < inst->module_list.count) {
+            int absolute = inst->module_list.items[inst->selected_module].first_plugin + idx;
+            if (absolute >= 0 && absolute < inst->plugin_list.count) {
+                return snprintf(buf, buf_len, "%s", inst->plugin_list.items[absolute].id);
+            }
         }
         return -1;
     }
     else if (strcmp(key, "selected_plugin") == 0) {
+        if (inst->selected_module >= 0 && inst->selected_module < inst->module_list.count) {
+            return snprintf(buf, buf_len, "%d", inst->selected_index - inst->module_list.items[inst->selected_module].first_plugin);
+        }
         return snprintf(buf, buf_len, "%d", inst->selected_index);
     }
     else if (strcmp(key, "current_plugin_name") == 0) {
@@ -483,6 +725,8 @@ static int v2_get_param(void *instance, const char *key, char *buf, int buf_len)
         }
         return snprintf(buf, buf_len, "None");
     }
+
+    /* Other params */
     else if (strcmp(key, "octave_transpose") == 0) {
         return snprintf(buf, buf_len, "%d", inst->octave_transpose);
     }
@@ -504,6 +748,51 @@ static int v2_get_param(void *instance, const char *key, char *buf, int buf_len)
         int idx = atoi(key + 12);
         double value = clap_param_get(&inst->current_plugin, idx);
         return snprintf(buf, buf_len, "%.3f", value);
+    }
+
+    /* Module list for Shadow UI menu */
+    else if (strcmp(key, "module_list") == 0) {
+        int written = snprintf(buf, buf_len, "[");
+        for (int i = 0; i < inst->module_list.count && written < buf_len - 80; i++) {
+            if (i > 0) written += snprintf(buf + written, buf_len - written, ",");
+            written += snprintf(buf + written, buf_len - written, "{\"label\":\"");
+            for (const char *p = inst->module_list.items[i].name; *p && written < buf_len - 10; p++) {
+                if (*p == '"' || *p == '\\') buf[written++] = '\\';
+                buf[written++] = *p;
+            }
+            written += snprintf(buf + written, buf_len - written, "\",\"index\":%d}", i);
+        }
+        written += snprintf(buf + written, buf_len - written, "]");
+        return written;
+    }
+
+    /* UI hierarchy for shadow parameter editor */
+    else if (strcmp(key, "ui_hierarchy") == 0) {
+        const char *hierarchy = "{"
+            "\"modes\":null,"
+            "\"levels\":{"
+                "\"root\":{"
+                    "\"list_param\":\"preset\","
+                    "\"count_param\":\"preset_count\","
+                    "\"name_param\":\"preset_name\","
+                    "\"children\":null,"
+                    "\"knobs\":[\"param_0\",\"param_1\",\"param_2\",\"param_3\",\"param_4\",\"param_5\",\"param_6\",\"param_7\"],"
+                    "\"params\":["
+                        "\"param_0\",\"param_1\",\"param_2\",\"param_3\",\"param_4\",\"param_5\",\"param_6\",\"param_7\","
+                        "{\"level\":\"modules\",\"label\":\"Choose Module\"}"
+                    "]"
+                "},"
+                "\"modules\":{"
+                    "\"label\":\"CLAP Modules\","
+                    "\"items_param\":\"module_list\","
+                    "\"select_param\":\"bank_index\","
+                    "\"children\":null,"
+                    "\"knobs\":[],"
+                    "\"params\":[]"
+                "}"
+            "}"
+        "}";
+        return snprintf(buf, buf_len, "%s", hierarchy);
     }
 
     return -1;

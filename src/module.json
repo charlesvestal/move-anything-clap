@@ -19,7 +19,37 @@
         "name": "Plugin",
         "type": "string"
       }
-    ]
+    ],
+    "ui_hierarchy": {
+      "levels": {
+        "root": {
+          "list_param": "preset",
+          "count_param": "preset_count",
+          "name_param": "preset_name",
+          "children": null,
+          "knobs": ["param_0", "param_1", "param_2", "param_3", "param_4", "param_5", "param_6", "param_7"],
+          "params": [
+            {"key": "param_0", "label": "Param 1"},
+            {"key": "param_1", "label": "Param 2"},
+            {"key": "param_2", "label": "Param 3"},
+            {"key": "param_3", "label": "Param 4"},
+            {"key": "param_4", "label": "Param 5"},
+            {"key": "param_5", "label": "Param 6"},
+            {"key": "param_6", "label": "Param 7"},
+            {"key": "param_7", "label": "Param 8"},
+            {"level": "modules", "label": "Choose Plugin"}
+          ]
+        },
+        "modules": {
+          "label": "CLAP Plugins",
+          "items_param": "module_list",
+          "select_param": "bank_index",
+          "children": null,
+          "knobs": [],
+          "params": []
+        }
+      }
+    }
   },
   "assets": {
     "path": "plugins",

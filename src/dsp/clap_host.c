@@ -945,6 +945,49 @@ double clap_param_get(clap_instance_t *inst, int index) {
     return info.default_value;
 }
 
+int clap_build_module_list(const clap_host_list_t *plugins, clap_module_list_t *out) {
+    if (!plugins || !out) return -1;
+    memset(out, 0, sizeof(*out));
+
+    for (int i = 0; i < plugins->count; i++) {
+        const char *path = plugins->items[i].path;
+
+        /* Check if we already have this path */
+        int found = -1;
+        for (int j = 0; j < out->count; j++) {
+            if (strcmp(out->items[j].path, path) == 0) {
+                found = j;
+                break;
+            }
+        }
+
+        if (found >= 0) {
+            out->items[found].plugin_count++;
+        } else {
+            if (out->count >= CLAP_MAX_MODULES) break;
+            clap_module_info_t *mod = &out->items[out->count];
+            strncpy(mod->path, path, sizeof(mod->path) - 1);
+
+            /* Extract display name from filename (without .clap extension) */
+            const char *filename = strrchr(path, '/');
+            filename = filename ? filename + 1 : path;
+            strncpy(mod->name, filename, sizeof(mod->name) - 1);
+            char *ext = strstr(mod->name, ".clap");
+            if (ext) *ext = '\0';
+
+            mod->first_plugin = i;
+            mod->plugin_count = 1;
+
+            /* Detect airwindows by filename */
+            mod->is_airwindows = starts_with_case_insensitive(mod->name, "airwindows");
+
+            out->count++;
+        }
+    }
+
+    return 0;
+}
+
 int clap_send_midi(clap_instance_t *inst, const uint8_t *msg, int len) {
     if (!msg || len < 1 || len > 3) return -1;
 

@@ -1,6 +1,8 @@
 // CLAP Host UI for Move Anything
 //
 // Provides plugin browser and parameter control interface.
+// Banks = .clap files, Presets = plugins within.
+// Categories shown for Airwindows.
 
 import {
     MoveMainKnob,
@@ -13,6 +15,9 @@ let selectedIndex = 0;
 let paramBank = 0;
 let paramCount = 0;
 let octaveTranspose = 0;
+let isAirwindows = false;
+let pluginCategory = "";
+let bankName = "";
 
 // Constants
 const PARAMS_PER_BANK = 8;
@@ -28,7 +33,7 @@ const CC_UP = MoveUp;
 const CC_DOWN = MoveDown;
 
 function refresh() {
-    // Get plugin count
+    // Get plugin count (scoped to selected bank)
     const countStr = host_module_get_param("plugin_count");
     const count = parseInt(countStr) || 0;
 
@@ -38,7 +43,7 @@ function refresh() {
         plugins.push(name || ("Plugin " + i));
     }
 
-    // Get current selection
+    // Get current selection (relative to bank)
     const selStr = host_module_get_param("selected_plugin");
     selectedIndex = parseInt(selStr) || 0;
 
@@ -49,6 +54,17 @@ function refresh() {
     // Get octave transpose
     const octStr = host_module_get_param("octave_transpose");
     octaveTranspose = parseInt(octStr) || 0;
+
+    // Get bank info
+    bankName = host_module_get_param("bank_name") || "";
+    isAirwindows = host_module_get_param("is_airwindows") === "1";
+
+    // Get category for current plugin
+    if (isAirwindows) {
+        pluginCategory = host_module_get_param("plugin_category") || "";
+    } else {
+        pluginCategory = "";
+    }
 }
 
 function render() {
@@ -69,16 +85,29 @@ function render() {
         return;
     }
 
+    // Bank name (if available)
+    if (bankName) {
+        const shortBank = bankName.length > 20 ? bankName.substring(0, 17) + "..." : bankName;
+        print(2, y, shortBank, 1);
+        y += LINE_HEIGHT;
+    }
+
     // Current plugin
     const name = plugins[selectedIndex] || "None";
     const shortName = name.length > 18 ? name.substring(0, 15) + "..." : name;
     print(2, y, "> " + shortName, 1);
     y += LINE_HEIGHT;
 
-    // Plugin selector hint
-    const octStr = octaveTranspose >= 0 ? "+" + octaveTranspose : String(octaveTranspose);
-    print(2, y, "[" + (selectedIndex + 1) + "/" + plugins.length + "] Oct:" + octStr, 1);
-    y += LINE_HEIGHT;
+    // Plugin selector hint + category for airwindows
+    if (isAirwindows && pluginCategory) {
+        const octStr = octaveTranspose >= 0 ? "+" + octaveTranspose : String(octaveTranspose);
+        print(2, y, "[" + (selectedIndex + 1) + "/" + plugins.length + "] [" + pluginCategory + "]", 1);
+        y += LINE_HEIGHT;
+    } else {
+        const octStr = octaveTranspose >= 0 ? "+" + octaveTranspose : String(octaveTranspose);
+        print(2, y, "[" + (selectedIndex + 1) + "/" + plugins.length + "] Oct:" + octStr, 1);
+        y += LINE_HEIGHT;
+    }
 
     // Parameters (show current bank)
     if (paramCount > 0) {
@@ -111,13 +140,14 @@ function handleMidi(msg, source) {
 
     // Handle control changes
     if (status === 0xB0) {
-        // Jog wheel - plugin selection
+        // Jog wheel - plugin selection (within current bank)
         if (cc === CC_JOG) {
             if (val === 1) {
                 // Right - next plugin
                 if (selectedIndex < plugins.length - 1) {
                     selectedIndex++;
                     host_module_set_param("selected_plugin", String(selectedIndex));
+                    paramBank = 0;
                     refresh();
                     render();
                 }
@@ -126,6 +156,7 @@ function handleMidi(msg, source) {
                 if (selectedIndex > 0) {
                     selectedIndex--;
                     host_module_set_param("selected_plugin", String(selectedIndex));
+                    paramBank = 0;
                     refresh();
                     render();
                 }

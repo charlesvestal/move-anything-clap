@@ -87,6 +87,33 @@ void clap_infer_category_from_metadata(const char *name,
  */
 void clap_free_plugin_list(clap_host_list_t *list);
 
+/* Maximum number of .clap modules (banks) */
+#define CLAP_MAX_MODULES 64
+
+/* Module metadata - one per .clap file */
+typedef struct clap_module_info {
+    char path[1024];       /* Full path to .clap file */
+    char name[256];        /* Display name (filename without .clap) */
+    int first_plugin;      /* First plugin index in flat list */
+    int plugin_count;      /* Number of plugins in this module */
+    bool is_airwindows;    /* Detected as airwindows bundle */
+} clap_module_info_t;
+
+/* List of discovered modules */
+typedef struct clap_module_list {
+    clap_module_info_t items[CLAP_MAX_MODULES];
+    int count;
+} clap_module_list_t;
+
+/*
+ * Build module list by grouping plugins by their source .clap file
+ *
+ * plugins: Flat list from clap_scan_plugins()
+ * out: Output module list
+ * Returns: 0 on success, -1 on error
+ */
+int clap_build_module_list(const clap_host_list_t *plugins, clap_module_list_t *out);
+
 /*
  * Load a plugin instance
  *
