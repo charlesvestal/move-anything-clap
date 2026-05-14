@@ -1,0 +1,11 @@
+--- a/src/AirwinRegistry.h
++++ b/src/AirwinRegistry.h
+@@ -51,7 +51,7 @@
+
+     static int registerAirwindow(const awReg &r)
+     {
+-        if (r.whatText.empty())
++        if (false && r.whatText.empty())
+         {
+             // std::cout << r.name << " / " << r.category << " missing what text" << std::endl;
+         }

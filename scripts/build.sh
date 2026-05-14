@@ -17,6 +17,14 @@ if [ -z "$CROSS_PREFIX" ] && [ ! -f "/.dockerenv" ]; then
     # Refresh map on host before entering Docker (Docker image may lack curl/wget).
     ./scripts/generate_airwindows_category_map.sh
 
+    # Rebuild Airwindows.clap from latest airwin2rack (runs in its own Docker image).
+    # Skip with SKIP_AIRWINDOWS_REBUILD=1 if you don't need a fresh plugin binary.
+    if [ "${SKIP_AIRWINDOWS_REBUILD:-0}" != "1" ]; then
+        ./scripts/build_airwindows_clap.sh
+    else
+        echo "Skipping Airwindows.clap rebuild (SKIP_AIRWINDOWS_REBUILD=1)"
+    fi
+
     # Build Docker image if needed
     if ! docker image inspect "$IMAGE_NAME" &>/dev/null; then
         echo "Building Docker image (first time only)..."
