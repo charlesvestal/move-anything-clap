@@ -1,24 +1,24 @@
-# Move Everything CLAP Host Module
+# Airwindows for Schwung
 
-> **⚠️ Proof of Concept**
->
-> This module is experimental. There are currently no known released third-party CLAP plugins that can be loaded without modification. Most plugins require rebuilding from source with headless options and ARM64 cross-compilation. See "Plugin Compatibility" below for details.
+Bundles 500+ Airwindows audio effects (Chris Johnson's classic free plugin
+suite) as a single audio FX module for the Ableton Move via Schwung / Move
+Everything.
 
-A Move Everything module that hosts arbitrary CLAP plugins in-process, usable as a standalone sound generator or as a component in Signal Chain.
+Built on a generic CLAP host: you can also drop other ARM64 Linux `.clap`
+files into the plugins directory, though Airwindows is what ships by default.
 
 ## Prerequisites
 
-- [Move Everything](https://github.com/charlesvestal/move-everything) installed on your Ableton Move
+- [Schwung / Move Everything](https://github.com/charlesvestal/move-everything) installed on your Ableton Move
 - SSH access enabled: http://move.local/development/ssh
-- ARM64 Linux CLAP plugins (see "Plugin Compatibility" below)
 
 ## Features
 
-- Load any CLAP plugin from `/data/UserData/move-anything/modules/sound_generators/clap/plugins/`
-- Browse and select plugins via the QuickJS UI
-- Control plugin parameters via encoder banks
-- Usable as sound generator in Signal Chain patches
-- CLAP audio FX plugins can be used in the chain's audio FX slot
+- 500+ Airwindows effects (via baconpaul/airwin2rack), grouped by category
+- Category-based browsing (Consoles, Filter, Tape, Reverb, etc.)
+- Per-plugin parameter control via encoder banks
+- Usable as an audio FX in Signal Chain
+- Extensible: drop additional ARM64 Linux `.clap` files into the plugins directory
 
 ## Important: Plugin Compatibility
 

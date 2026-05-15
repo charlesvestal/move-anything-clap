@@ -4,7 +4,10 @@ Instructions for Claude Code when working with this repository.
 
 ## Project Overview
 
-CLAP Host module for Move Anything - hosts arbitrary CLAP audio plugins in-process, usable as a sound generator or audio FX in Signal Chain.
+Airwindows audio FX module for Schwung / Move Everything. Bundles 500+ effects
+from Chris Johnson's Airwindows suite (via baconpaul/airwin2rack) as a single
+audio FX. Built on a generic CLAP host, so additional ARM64 Linux `.clap`
+files can be added to the plugins directory.
 
 ## Build Commands
 
