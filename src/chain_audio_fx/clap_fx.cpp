@@ -11,6 +11,9 @@
 #include <math.h>
 #include <sys/time.h>
 #include <ctype.h>
+#include <unistd.h>
+#include <pthread.h>
+#include <sched.h>
 
 #include "chain_audio_fx/category_browser.h"
 
@@ -303,6 +306,13 @@ typedef struct {
     char cached_param_keys[MAX_CACHED_PARAMS][64];  /* Sanitized for use as keys */
     double cached_param_min[MAX_CACHED_PARAMS];
     double cached_param_max[MAX_CACHED_PARAMS];
+    /* Worker thread for off-RT plugin loading. Avoids stalling the SPI
+       realtime callback while dlopen + plugin->init + activate run. */
+    pthread_t loader_thread;
+    pthread_mutex_t loader_mutex;
+    pthread_cond_t loader_cond;
+    int loader_thread_started;
+    volatile int loader_stop;
 } clap_fx_instance_t;
 
 /* Forward declaration */
@@ -485,12 +495,6 @@ static void v2_fx_log(const char *msg) {
         g_host->log(msg);
     }
     fprintf(stderr, "[CLAP FX v2] %s\n", msg);
-    /* Also write to file for debugging */
-    FILE *f = fopen("/tmp/clap_fx_debug.txt", "a");
-    if (f) {
-        fprintf(f, "[CLAP FX v2] %s\n", msg);
-        fclose(f);
-    }
 }
 
 static int v2_display_to_raw_index(clap_fx_instance_t *inst, int display_index) {
@@ -528,6 +532,67 @@ static void v2_ensure_plugins_scanned(clap_fx_instance_t *inst) {
     inst->plugins_scanned = 1;
 }
 
+/* Worker thread: drains debounced plugin loads off the SPI realtime path.
+   v2_set_param signals this thread when a new selection is scheduled. */
+static int v2_load_plugin_by_display_index(clap_fx_instance_t *inst, int display_index);
+
+static void *loader_thread_fn(void *arg) {
+    clap_fx_instance_t *inst = (clap_fx_instance_t*)arg;
+
+    /* Reset to normal scheduling. v2_create_instance may be called from a
+       SCHED_FIFO context (the shim inherits Move's RT priority), and
+       pthread_create inherits the caller's policy. Without this reset the
+       worker runs at RT and contends with the SPI callback — defeating the
+       point of moving the load off the realtime path. */
+    {
+        struct sched_param sp;
+        memset(&sp, 0, sizeof(sp));
+        sp.sched_priority = 0;
+        pthread_setschedparam(pthread_self(), SCHED_OTHER, &sp);
+    }
+
+    pthread_mutex_lock(&inst->loader_mutex);
+    while (!inst->loader_stop) {
+        /* Wait for work or shutdown. */
+        while (!inst->loader_stop && inst->pending_load_time == 0) {
+            pthread_cond_wait(&inst->loader_cond, &inst->loader_mutex);
+        }
+        if (inst->loader_stop) break;
+
+        /* Sleep until the debounce target. If a new selection comes in while
+           we're sleeping, pending_load_time gets bumped forward; we restart. */
+        uint64_t target = inst->pending_load_time;
+        pthread_mutex_unlock(&inst->loader_mutex);
+
+        uint64_t now = get_time_ms();
+        if (target > now) {
+            usleep((unsigned int)((target - now) * 1000));
+        }
+
+        pthread_mutex_lock(&inst->loader_mutex);
+        if (inst->loader_stop) break;
+        /* Target advanced — loop back and re-wait. */
+        if (inst->pending_load_time == 0 || inst->pending_load_time > target) {
+            continue;
+        }
+        int idx = inst->selected_plugin_index;
+        int loaded = inst->loaded_plugin_index;
+        pthread_mutex_unlock(&inst->loader_mutex);
+
+        int target_raw = v2_display_to_raw_index(inst, idx);
+        if (target_raw >= 0 && target_raw != loaded) {
+            v2_load_plugin_by_display_index(inst, idx);
+        } else {
+            pthread_mutex_lock(&inst->loader_mutex);
+            inst->pending_load_time = 0;
+            pthread_mutex_unlock(&inst->loader_mutex);
+        }
+        pthread_mutex_lock(&inst->loader_mutex);
+    }
+    pthread_mutex_unlock(&inst->loader_mutex);
+    return NULL;
+}
+
 /* Load plugin by raw index in scanned plugin_list */
 static int v2_load_plugin_by_raw_index(clap_fx_instance_t *inst, int index) {
     v2_ensure_plugins_scanned(inst);
@@ -547,6 +612,12 @@ static int v2_load_plugin_by_raw_index(clap_fx_instance_t *inst, int index) {
     /* Mark as loading - audio thread will skip processing */
     inst->loading = 1;
     __sync_synchronize();
+
+    /* Give the SPI realtime callback time to observe loading=1 before we
+       destroy the current plugin. Without this, when the loader worker
+       runs on a separate thread from process_block, we could free a
+       plugin still inside plugin->process(). One frame is ~3ms at 44.1k. */
+    usleep(5000);
 
     /* Unload current plugin if any */
     if (inst->current_plugin.plugin) {
@@ -625,6 +696,14 @@ static void* v2_create_instance(const char *module_dir, const char *config_json)
     inst->loaded_plugin_index = -1;    /* No plugin loaded yet */
     inst->selected_category_index = -1;
 
+    pthread_mutex_init(&inst->loader_mutex, NULL);
+    pthread_cond_init(&inst->loader_cond, NULL);
+    if (pthread_create(&inst->loader_thread, NULL, loader_thread_fn, inst) == 0) {
+        inst->loader_thread_started = 1;
+    } else {
+        v2_fx_log("Failed to start loader thread");
+    }
+
     int plugin_loaded = 0;
 
     /* Parse config JSON for plugin_id if provided */
@@ -671,6 +750,18 @@ static void v2_destroy_instance(void *instance) {
 
     v2_fx_log("Destroying CLAP FX instance");
 
+    /* Stop the loader worker before tearing down plugin state it might touch. */
+    if (inst->loader_thread_started) {
+        pthread_mutex_lock(&inst->loader_mutex);
+        inst->loader_stop = 1;
+        pthread_cond_signal(&inst->loader_cond);
+        pthread_mutex_unlock(&inst->loader_mutex);
+        pthread_join(inst->loader_thread, NULL);
+        inst->loader_thread_started = 0;
+    }
+    pthread_mutex_destroy(&inst->loader_mutex);
+    pthread_cond_destroy(&inst->loader_cond);
+
     if (inst->current_plugin.plugin) {
         clap_unload_plugin(&inst->current_plugin);
     }
@@ -708,8 +799,6 @@ static void v2_set_param(void *instance, const char *key, const char *val) {
     if (!inst || !key || !val) return;
 
     char msg[512];
-    snprintf(msg, sizeof(msg), "v2_set_param: key='%s' val='%s'", key, val);
-    v2_fx_log(msg);
 
     if (strcmp(key, "plugin_id") == 0) {
         if (strcmp(val, inst->selected_plugin_id) != 0) {
@@ -719,13 +808,16 @@ static void v2_set_param(void *instance, const char *key, const char *val) {
     else if (strcmp(key, "plugin_index") == 0) {
         int idx = atoi(val);
         if (idx >= 0 && idx < inst->browser_index.display_count && idx != inst->selected_plugin_index) {
-            /* Update selected index and schedule debounced load */
+            /* Update selected index and schedule debounced load.
+               The actual load runs on the loader worker thread so the SPI
+               realtime callback never blocks on dlopen/plugin->init. */
+            pthread_mutex_lock(&inst->loader_mutex);
             inst->selected_plugin_index = idx;
             inst->selected_category_index =
                 clap_fx_category_index_for_display(&inst->browser_index, idx);
             inst->pending_load_time = get_time_ms() + PLUGIN_LOAD_DEBOUNCE_MS;
-            snprintf(msg, sizeof(msg), "Scheduled plugin load: idx=%d (debounce %dms)", idx, PLUGIN_LOAD_DEBOUNCE_MS);
-            v2_fx_log(msg);
+            pthread_cond_signal(&inst->loader_cond);
+            pthread_mutex_unlock(&inst->loader_mutex);
         }
     }
     else if (strcmp(key, "jump_to_category") == 0) {
@@ -762,40 +854,11 @@ static void v2_set_param(void *instance, const char *key, const char *val) {
     }
 }
 
-/* Check if a pending plugin load is ready (debounce expired) and execute it */
-static void v2_check_pending_load(clap_fx_instance_t *inst) {
-    if (!inst->pending_load_time) return;  /* No pending load */
-    if (inst->loading) return;  /* Already loading */
-
-    uint64_t now = get_time_ms();
-    if (now >= inst->pending_load_time) {
-        /* Debounce expired - actually load the plugin */
-        int selected_raw = v2_current_raw_index(inst);
-        if (selected_raw >= 0 && selected_raw != inst->loaded_plugin_index) {
-            char msg[256];
-            snprintf(msg, sizeof(msg), "Debounce expired, loading plugin idx=%d", inst->selected_plugin_index);
-            v2_fx_log(msg);
-            v2_load_plugin_by_display_index(inst, inst->selected_plugin_index);
-        } else {
-            inst->pending_load_time = 0;  /* Nothing to do */
-        }
-    }
-}
-
 static int v2_get_param(void *instance, const char *key, char *buf, int buf_len) {
     clap_fx_instance_t *inst = (clap_fx_instance_t*)instance;
     if (!inst || !key || !buf || buf_len <= 0) return -1;
 
-    /* Check if a pending plugin load is ready */
-    v2_check_pending_load(inst);
-
     v2_ensure_plugins_scanned(inst);
-
-    /* Debug: log all get_param calls */
-    char msg[512];
-    snprintf(msg, sizeof(msg), "v2_get_param: key='%s' plugin_count=%d selected_idx=%d",
-             key, inst->browser_index.display_count, inst->selected_plugin_index);
-    v2_fx_log(msg);
 
     int selected_raw = v2_current_raw_index(inst);
 
@@ -945,6 +1008,10 @@ static audio_fx_api_v2_t g_fx_api_v2;
 
 extern "C" audio_fx_api_v2_t* move_audio_fx_init_v2(const host_api_v1_t *host) {
     g_host = host;
+
+    /* Remove stale debug file from prior buggy versions that wrote here from
+       the SPI realtime path. Rootfs is tiny; left behind it can fill the disk. */
+    unlink("/tmp/clap_fx_debug.txt");
 
     memset(&g_fx_api_v2, 0, sizeof(g_fx_api_v2));
     g_fx_api_v2.api_version = AUDIO_FX_API_VERSION_2;

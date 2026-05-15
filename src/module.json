@@ -2,7 +2,7 @@
   "id": "clap",
   "name": "Airwindows",
   "abbrev": "AW",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "Airwindows audio effects (500+ plugins via airwin2rack)",
   "author": "charlesvestal, Chris Johnson (Airwindows)",
   "license": "MIT",
