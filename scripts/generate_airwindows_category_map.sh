@@ -86,6 +86,8 @@ if [ ! -f "$INPUT_FILE" ]; then
     exit 1
 fi
 
+OVERRIDES_FILE="$SCRIPT_DIR/airwindows_category_overrides.tsv"
+
 tmp_output="$(mktemp)"
 perl -ne '
     if (/registerAirwindow\(\{\"([^\"]+)\",\s*\"([^\"]+)\"/) {
@@ -93,6 +95,25 @@ perl -ne '
     }
 ' "$INPUT_FILE" \
     | sort -u \
+    | awk -F '\t' -v overrides="$OVERRIDES_FILE" '
+        BEGIN {
+            if (overrides != "") {
+                while ((getline line < overrides) > 0) {
+                    if (line ~ /^[[:space:]]*#/ || line ~ /^[[:space:]]*$/) continue;
+                    n = split(line, a, "\t");
+                    if (n >= 2) o[a[1]] = a[2];
+                }
+                close(overrides);
+            }
+        }
+        {
+            if ($2 == "Unclassified" && ($1 in o)) {
+                print $1 "\t" o[$1];
+            } else {
+                print $0;
+            }
+        }
+    ' \
     | awk -F '\t' '{ printf("    {\"%s\", \"%s\"},\n", $1, $2); }' > "$tmp_output"
 
 if [ ! -s "$tmp_output" ]; then

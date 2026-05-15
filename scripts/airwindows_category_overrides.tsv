@@ -1,0 +1,35 @@
+# Local category overrides for Airwindows effects.
+#
+# Applied ONLY when upstream airwin2rack still has the effect as "Unclassified".
+# When upstream adds a real category, ours is ignored — so pulling future airwin2rack
+# updates automatically picks up canonical categorizations.
+#
+# Format: <plugin_name><TAB><category>
+# Categories must match those used by upstream (Ambience, Amp Sims, Bass, Biquads,
+# Brightness, Clipping, Consoles, Distortion, Dithers, Dynamics, Effects, Filter,
+# Lo-Fi, Noise, Reverb, Saturation, Stereo, Subtlety, Tape, Tone Color, Utility,
+# XYZ Filters).
+#
+# Rationale for each entry recorded in commit history.
+
+BitDualPan	Stereo
+ConsoleHBuss	Consoles
+ConsoleHChannel	Consoles
+ConsoleHPre	Consoles
+ConsoleX2Buss	Consoles
+ConsoleX2Channel	Consoles
+ConsoleX2Pre	Consoles
+ConsoleXBuss	Consoles
+ConsoleXChannel	Consoles
+ConsoleXPre	Consoles
+CStrip	Consoles
+Density3	Distortion
+Dynamics3	Dynamics
+kRockstar	Reverb
+LRConvolve3	Utility
+Pafnuty	Effects
+PearLiteEQ	Filter
+PunchyDeluxe	Distortion
+PunchyGuitar	Amp Sims
+SoftClock3	Utility
+X2Buss	Consoles
