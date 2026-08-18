@@ -12,7 +12,7 @@
 #
 # Rationale for each entry recorded in commit history.
 
-BitDualPan	Stereo
+BezEQ4	Filter
 ConsoleHBuss	Consoles
 ConsoleHChannel	Consoles
 ConsoleHPre	Consoles
@@ -22,6 +22,7 @@ ConsoleX2Pre	Consoles
 ConsoleXBuss	Consoles
 ConsoleXChannel	Consoles
 ConsoleXPre	Consoles
+ConsoleX3	Consoles
 CStrip	Consoles
 Density3	Distortion
 Dynamics3	Dynamics
@@ -31,5 +32,9 @@ Pafnuty	Effects
 PearLiteEQ	Filter
 PunchyDeluxe	Distortion
 PunchyGuitar	Amp Sims
+PurestConsole4Buss	Consoles
+PurestConsole4Channel	Consoles
+PurestWarm3	Subtlety
 SoftClock3	Utility
-X2Buss	Consoles
+Spiral3	Saturation
+Weave	Saturation

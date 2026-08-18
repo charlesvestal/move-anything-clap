@@ -1,6 +1,6 @@
 # Airwindows for Schwung
 
-The full [Airwindows](https://github.com/airwindows/airwindows) collection — 509 audio effects by Chris Johnson — for your Ableton Move, via Schwung / Move Everything.
+The full [Airwindows](https://github.com/airwindows/airwindows) collection — 519 audio effects by Chris Johnson — for your Ableton Move, via Schwung / Move Everything.
 
 Drop it onto a Signal Chain, pick from 22 categories (consoles, tape, reverbs, saturation, and a whole lot of weird stuff), and dial it in with the encoders.
 
@@ -20,7 +20,7 @@ You'll need [Schwung / Move Everything](https://github.com/charlesvestal/move-ev
 
 ## The effects
 
-All 509, in the order they appear in the browser.
+All 519, in the order they appear in the browser.
 
 <details>
 <summary><strong>Ambience</strong> (25)</summary>
@@ -156,7 +156,7 @@ All 509, in the order they appear in the browser.
 </details>
 
 <details>
-<summary><strong>Consoles</strong> (56)</summary>
+<summary><strong>Consoles</strong> (58)</summary>
 
 - AtmosphereBuss
 - AtmosphereChannel
@@ -200,6 +200,7 @@ All 509, in the order they appear in the browser.
 - ConsoleX2Buss
 - ConsoleX2Channel
 - ConsoleX2Pre
+- ConsoleX3
 - ConsoleXBuss
 - ConsoleXChannel
 - ConsoleXPre
@@ -211,9 +212,10 @@ All 509, in the order they appear in the browser.
 - PurestConsole2Channel
 - PurestConsole3Buss
 - PurestConsole3Channel
+- PurestConsole4Buss
+- PurestConsole4Channel
 - PurestConsoleBuss
 - PurestConsoleChannel
-- X2Buss
 
 </details>
 
@@ -268,7 +270,7 @@ All 509, in the order they appear in the browser.
 </details>
 
 <details>
-<summary><strong>Dynamics</strong> (34)</summary>
+<summary><strong>Dynamics</strong> (35)</summary>
 
 - BeziComp
 - BlockParty
@@ -304,6 +306,7 @@ All 509, in the order they appear in the browser.
 - Swell
 - Thunder
 - VariMu
+- X2Buss
 
 </details>
 
@@ -343,7 +346,7 @@ All 509, in the order they appear in the browser.
 </details>
 
 <details>
-<summary><strong>Filter</strong> (51)</summary>
+<summary><strong>Filter</strong> (53)</summary>
 
 - AngleEQ
 - AngleFilter
@@ -355,6 +358,7 @@ All 509, in the order they appear in the browser.
 - BezEQ
 - BezEQ2
 - BezEQ3
+- BezEQ4
 - Capacitor
 - Capacitor2
 - CStrip2
@@ -386,6 +390,7 @@ All 509, in the order they appear in the browser.
 - PrimeFIR
 - ResEQ
 - ResEQ2
+- RetroBass
 - Silken
 - SmoothEQ
 - SmoothEQ2
@@ -400,7 +405,7 @@ All 509, in the order they appear in the browser.
 </details>
 
 <details>
-<summary><strong>Lo-Fi</strong> (19)</summary>
+<summary><strong>Lo-Fi</strong> (20)</summary>
 
 - Bite
 - BitGlitter
@@ -412,6 +417,7 @@ All 509, in the order they appear in the browser.
 - DeRez
 - DeRez2
 - DeRez3
+- DeRez4
 - DustBunny
 - Flutter
 - Flutter2
@@ -440,7 +446,7 @@ All 509, in the order they appear in the browser.
 </details>
 
 <details>
-<summary><strong>Reverb</strong> (37)</summary>
+<summary><strong>Reverb</strong> (38)</summary>
 
 - Chamber
 - Chamber2
@@ -459,6 +465,7 @@ All 509, in the order they appear in the browser.
 - kCathedral4
 - kCathedral5
 - kCosmos
+- kCyberCity
 - kGuitarHall
 - kGuitarHall2
 - kPlate140
@@ -483,7 +490,7 @@ All 509, in the order they appear in the browser.
 </details>
 
 <details>
-<summary><strong>Saturation</strong> (17)</summary>
+<summary><strong>Saturation</strong> (20)</summary>
 
 - Creature
 - Desk4
@@ -491,6 +498,7 @@ All 509, in the order they appear in the browser.
 - Focus
 - Huge
 - Hypersoft
+- Longhand
 - Mojo
 - NCSeventeen
 - PurestDrive
@@ -498,18 +506,19 @@ All 509, in the order they appear in the browser.
 - Righteous4
 - Spiral
 - Spiral2
+- Spiral3
 - SquareRoot
 - Tube
 - Tube2
 - UnBox
+- Weave
 
 </details>
 
 <details>
-<summary><strong>Stereo</strong> (13)</summary>
+<summary><strong>Stereo</strong> (12)</summary>
 
 - AutoPan
-- BitDualPan
 - LRFlipTimer
 - MSFlipTimer
 - SideDull
@@ -525,7 +534,7 @@ All 509, in the order they appear in the browser.
 </details>
 
 <details>
-<summary><strong>Subtlety</strong> (19)</summary>
+<summary><strong>Subtlety</strong> (20)</summary>
 
 - Coils
 - Coils2
@@ -540,6 +549,7 @@ All 509, in the order they appear in the browser.
 - PhaseNudge
 - PurestWarm
 - PurestWarm2
+- PurestWarm3
 - Remap
 - Shape
 - SingleEndedTriode
@@ -590,16 +600,10 @@ All 509, in the order they appear in the browser.
 </details>
 
 <details>
-<summary><strong>Unclassified</strong> (1)</summary>
-
-- Longhand
-
-</details>
-
-<details>
-<summary><strong>Utility</strong> (37)</summary>
+<summary><strong>Utility</strong> (38)</summary>
 
 - Balanced
+- BitDualPan
 - BitShiftGain
 - BitShiftPan
 - Cans
