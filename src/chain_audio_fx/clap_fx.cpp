@@ -838,8 +838,14 @@ static void v2_set_param(void *instance, const char *key, const char *val) {
         double value = atof(val);
         if (inst->current_plugin.plugin) {
             clap_param_set(&inst->current_plugin, param_idx, value);
-            snprintf(msg, sizeof(msg), "Set param[%d] = %.3f", param_idx, value);
-            v2_fx_log(msg);
+            /* NO LOGGING HERE. This runs at modulation rate — an LFO driving a
+             * CLAP param calls this once per audio block (~340/s). v2_fx_log
+             * does an unconditional fprintf(stderr), and stderr is unbuffered,
+             * so it was a write() syscall per block from the audio path; when
+             * debug_log_on was armed it also went through unified_log, which
+             * fflush()es every line to eMMC. Measured 2026-08-19: ~28.5 KB/s of
+             * log traffic and audible dropouts. Logging a value that changes
+             * every block is not useful anyway. */
         }
     }
     else {
@@ -848,8 +854,8 @@ static void v2_set_param(void *instance, const char *key, const char *val) {
         if (param_idx >= 0 && inst->current_plugin.plugin) {
             double value = atof(val);
             clap_param_set(&inst->current_plugin, param_idx, value);
-            snprintf(msg, sizeof(msg), "Set param '%s' [%d] = %.3f", key, param_idx, value);
-            v2_fx_log(msg);
+            /* Same hot path as the param_N branch above — see the note there.
+             * No logging at modulation rate. */
         }
     }
 }
