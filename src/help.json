@@ -4,49 +4,82 @@
     {
       "title": "Overview",
       "lines": [
-        "CLAP plugin host",
-        "for audio effects.",
+        "The Airwindows",
+        "collection by Chris",
+        "Johnson: 519 audio",
+        "effects, bundled and",
+        "ready to use.",
         "",
-        "Loads .clap plugin",
-        "files and exposes",
-        "their parameters.",
+        "No download or setup",
+        "is needed. Add it to",
+        "a Signal Chain and",
+        "pick an effect.",
         "",
-        "Dynamically discovers",
-        "plugins from the",
-        "module directory."
+        "It is also a general",
+        "CLAP host, so extra",
+        ".clap files you add",
+        "are discovered too."
       ]
     },
     {
-      "title": "Setup",
+      "title": "Browsing",
       "lines": [
-        "Upload .clap plugin",
-        "files via the ME",
-        "Installer's asset",
-        "copy feature.",
+        "Effects are grouped",
+        "into 22 categories",
+        "(Ambience, Amp Sims,",
+        "Consoles, Dynamics,",
+        "Reverb, Saturation,",
+        "Tape and more).",
         "",
-        "Plugins must be",
-        "compiled for ARM64",
-        "Linux (aarch64).",
+        "Use 'Jump to",
+        "Category' on the",
+        "root page to pick a",
+        "category, then step",
+        "through the effects",
+        "in it.",
         "",
-        "Select plugin from",
-        "the browse menu.",
-        "Parameters exposed",
-        "automatically."
+        "Categories come from",
+        "the plugins found,",
+        "so adding your own",
+        "adds to the list."
+      ]
+    },
+    {
+      "title": "Extra plugins",
+      "lines": [
+        "Optional. Copy your",
+        "own .clap files into",
+        "the module's plugins",
+        "folder using the",
+        "Schwung manager at",
+        "move.local:7700.",
+        "",
+        "They must be built",
+        "for ARM64 Linux",
+        "(aarch64).",
+        "",
+        "Only plugins with an",
+        "audio input appear",
+        "in the browser."
       ]
     },
     {
       "title": "Controls",
       "lines": [
-        "Parameters depend on",
-        "the loaded plugin.",
-        "",
-        "Knobs are dynamically",
+        "The 8 knobs are",
         "mapped to the first",
-        "available parameters.",
+        "8 parameters of the",
+        "effect you loaded,",
+        "in the order the",
+        "effect reports them.",
         "",
-        "Plugin selection and",
-        "parameter browsing",
-        "via the menu."
+        "Effects with fewer",
+        "parameters leave",
+        "the rest unused.",
+        "",
+        "Names and ranges",
+        "come from the",
+        "effect itself."
       ]
     }
   ]
